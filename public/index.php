@@ -42,8 +42,6 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
 $h = static fn(mixed $value): string => htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
 $cdDefaults = $canvasDeploy['defaults'];
 $cdScopeValue = (string)$cdDefaults['scope_value'];
-$cdCanvasLocked = true;
-$cdCanvasMissing = trim((string)$cdDefaults['base_url']) === '';
 ?>
 <div class="container my-4">
 <p class="lead">Install the SLO Cloud LTI 1.1 tool in your Canvas courses. Connect with your Canvas API token, then choose the courses. Courses that already have it are left alone, so this can be run again at any time.</p>
@@ -65,10 +63,10 @@ $cdCanvasMissing = trim((string)$cdDefaults['base_url']) === '';
                     <div id="cdConnectFields">
                     <div class="mb-3">
                         <label for="cdBaseUrl" class="form-label">Canvas URL</label>
-                        <input type="url" class="form-control" id="cdBaseUrl" name="base_url" value="<?= $h($cdDefaults['base_url']) ?>" <?= $cdCanvasLocked ? 'readonly' : '' ?>
+                        <input type="url" class="form-control" id="cdBaseUrl" name="base_url" value="<?= $h($cdDefaults['base_url']) ?>"
                             placeholder="https://college.instructure.com" autocomplete="url" spellcheck="false" required
                             aria-describedby="cdBaseUrlHelp cdBaseUrlError">
-                        <div id="cdBaseUrlHelp" class="form-text"><?= $cdCanvasMissing ? 'The Canvas URL is not set in this server\'s config (canvas_base_url), so this page cannot connect.' : 'The Canvas instance paired with this SLO Cloud server.' ?></div>
+                        <div id="cdBaseUrlHelp" class="form-text">Your institution's Canvas address, for example https://college.instructure.com.</div>
                         <div id="cdBaseUrlError" class="invalid-feedback"></div>
                     </div>
                     <div class="mb-3">
@@ -78,7 +76,7 @@ $cdCanvasMissing = trim((string)$cdDefaults['base_url']) === '';
                         <div id="cdTokenHelp" class="form-text">Create one in Canvas under Account &gt; Settings &gt; New Access Token. A teacher token can deploy to the courses you teach; a Canvas account admin token also unlocks whole terms and accounts. It is never saved. After you connect it stays in this page so you can run again; Log out, closing or reloading the page forgets it, and during a run the server keeps only an encrypted copy until the run ends.</div>
                         <div id="cdTokenError" class="invalid-feedback"></div>
                     </div>
-                    <button type="button" class="btn btn-primary" id="cdTestConnection" <?= $cdCanvasMissing ? 'disabled' : '' ?>>Connect and list my courses</button>
+                    <button type="button" class="btn btn-primary" id="cdTestConnection">Connect and list my courses</button>
                     </div>
                     <div id="cdConnectionStatus" class="mt-3" role="status" aria-live="polite"></div>
                 </div>

@@ -24,6 +24,8 @@ $appConfig = [
     'lti.launch_url' => trim((string)$setting('lti_launch_url', 'LTI_LAUNCH_URL')),
     'lti.consumer_key' => trim((string)$setting('lti_consumer_key', 'LTI_CONSUMER_KEY')),
     'lti.consumer_secret' => (string)$setting('lti_consumer_secret', 'LTI_CONSUMER_SECRET'),
+    // Optional list of Canvas hosts people may connect to, e.g. ['*.instructure.com'].
+    'canvas.allowed_hosts' => (array)$setting('canvas_allowed_hosts', 'CANVAS_ALLOWED_HOSTS', []),
     'data_dir' => (string)$setting('data_dir', 'CANVAS_AUTOMATIONS_DATA', dirname(__DIR__) . '/var'),
 ];
 // Defaults for the form (link name, module name, ...) may be set with their canvas.* keys.
@@ -31,6 +33,9 @@ foreach ($fileSettings as $key => $value) {
     if (str_starts_with((string)$key, 'canvas.')) {
         $appConfig[$key] = $value;
     }
+}
+if (is_string($appConfig['canvas.allowed_hosts'][0] ?? null) && count($appConfig['canvas.allowed_hosts']) === 1) {
+    $appConfig['canvas.allowed_hosts'] = array_values(array_filter(array_map('trim', explode(',', $appConfig['canvas.allowed_hosts'][0]))));
 }
 $configGet = static fn(string $key, mixed $default = null): mixed => $appConfig[$key] ?? $default;
 

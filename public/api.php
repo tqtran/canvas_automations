@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../src/bootstrap.php';
 
+use CanvasAutomations\CanvasClient;
 use CanvasAutomations\CanvasDeployRun;
 
 // No login: the Canvas token is the credential, and Canvas decides what it may do.
@@ -23,22 +24,54 @@ if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], (strin
 @set_time_limit(90);
 
 $action = (string)($_POST['action'] ?? '');
-// Anyone can reach this endpoint, so it only talks to the configured Canvas URL;
-// otherwise it would be an open relay to any host.
+// The person picks their Canvas. Anyone can reach this endpoint, so a URL other than the
+// configured one must be a public https host (and on the allowed list, when there is one);
+// otherwise this would be a relay into the server's own network.
 $configuredCanvas = $appConfig['canvas.base_url'];
-if ($configuredCanvas === '') {
-    http_response_code(409);
-    echo json_encode(['ok' => false, 'error' => 'canvas_not_configured', 'message' => 'The Canvas URL is not set in this server\'s config.']);
-    exit;
+if (trim((string)($_POST['base_url'] ?? '')) === '') {
+    $_POST['base_url'] = $configuredCanvas;
 }
-$_POST['base_url'] = $configuredCanvas;
+$normalize = static function (string $url): string {
+    try {
+        return CanvasClient::normalizeBaseUrl($url);
+    } catch (\Throwable) {
+        return '';
+    }
+};
+$postedCanvas = $normalize((string)$_POST['base_url']);
+$sameCanvas = $postedCanvas !== '' && $configuredCanvas !== '' && $postedCanvas === $normalize($configuredCanvas);
+$refuse = static function (string $message): never {
+    http_response_code(422);
+    echo json_encode(['ok' => false, 'error' => 'canvas_url', 'message' => $message, 'fields' => ['base_url' => $message]]);
+    exit;
+};
+if ($postedCanvas !== '' && !$sameCanvas) {
+    $host = (string)parse_url($postedCanvas, PHP_URL_HOST);
+    $allowed = $appConfig['canvas.allowed_hosts'];
+    if ($allowed !== [] && !array_filter($allowed, static fn($pattern): bool => fnmatch(strtolower((string)$pattern), $host))) {
+        $refuse('This server only connects to these Canvas sites: ' . implode(', ', $allowed) . '.');
+    }
+    $addresses = filter_var(trim($host, '[]'), FILTER_VALIDATE_IP) ? [trim($host, '[]')] : array_merge(
+        array_column(@dns_get_record($host, DNS_A) ?: [], 'ip'),
+        array_column(@dns_get_record($host, DNS_AAAA) ?: [], 'ipv6')
+    );
+    if ($addresses === []) {
+        $refuse('Could not find ' . $host . '. Check the Canvas URL.');
+    }
+    foreach ($addresses as $address) {
+        if (!filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+            $refuse($host . ' is a private or internal address. Enter your public Canvas URL.');
+        }
+    }
+}
 
-// The LTI settings in the server config are optional. They fill in whatever the user leaves blank.
-$lti = [
+// The LTI settings in the server config are optional and fill in whatever the user leaves
+// blank, but only for the configured Canvas: the shared secret never goes to another host.
+$lti = $sameCanvas ? [
     'launch_url' => $appConfig['lti.launch_url'],
     'consumer_key' => $appConfig['lti.consumer_key'],
     'consumer_secret' => $appConfig['lti.consumer_secret'],
-];
+] : ['launch_url' => '', 'consumer_key' => '', 'consumer_secret' => ''];
 
 $store = is_array($_SESSION['canvas_deploy'] ?? null) ? $_SESSION['canvas_deploy'] : [];
 $batchRunId = $store['run']['id'] ?? null;

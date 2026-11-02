@@ -444,11 +444,25 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
             throw { error: 'network', message: 'SLO Cloud could not be reached. Check your connection, then retry.' };
         }
         let payload = null;
-        try { payload = await response.json(); } catch (error) { payload = null; }
+        let raw = '';
+        try { raw = await response.text(); } catch (error) { raw = ''; }
+        try { payload = raw ? JSON.parse(raw) : null; } catch (error) { payload = null; }
         if (!payload) {
             if (response.redirected) throw { error: 'session', message: 'Your SLO Cloud session ended. Sign in again in another tab, then retry.' };
             if (response.status === 403) throw { error: 'forbidden', message: 'Access denied.' };
-            throw { error: 'http_' + response.status, message: 'SLO Cloud returned an unexpected response (HTTP ' + response.status + ').' };
+            // Show the start of the reply as plain text, so a firewall or proxy page can be identified.
+            const text = raw
+                .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+                .replace(/<[^>]*>/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            const snippet = text.slice(0, 300);
+            console.error('Non-JSON reply from ' + config.apiUrl + ' (HTTP ' + response.status + '):', raw);
+            throw {
+                error: 'http_' + response.status,
+                message: 'SLO Cloud returned an unexpected response (HTTP ' + response.status + '). '
+                    + (snippet ? 'The server said: "' + snippet + (text.length > 300 ? '…' : '') + '"' : 'The reply was empty.'),
+            };
         }
         if (!response.ok || payload.ok !== true) throw payload;
         return payload;

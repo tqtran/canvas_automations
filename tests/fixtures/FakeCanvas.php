@@ -1,0 +1,303 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * In-memory stand-in for the Canvas REST endpoints used by the deployment page.
+ * Shared by tests/canvas_deploy_test.php and tests/fixtures/mock_canvas_server.php.
+ *
+ * Test values only: the mock accepts the token below and nothing else.
+ */
+final class FakeCanvas
+{
+    public const TOKEN = 'mock-canvas-token-0001';
+    public const LAUNCH_URL = 'https://slo.example.edu/lti/launch.php';
+    public const CONSUMER_KEY = 'slocloud-test-key';
+    public const CONSUMER_SECRET = 'slocloud-test-secret';
+    public const PROD_LAUNCH_URL = 'https://slo-prod.example.edu/lti/launch.php';
+
+    /** @var callable(float): void */
+    private $latency;
+
+    public function __construct(public array $state, ?callable $latency = null)
+    {
+        $this->latency = $latency ?? static function (float $seconds): void {
+            if ($seconds > 0) {
+                usleep((int)round($seconds * 1_000_000));
+            }
+        };
+    }
+
+    /** Scenario seed. $options: account_tool (bool), slow (bool), throttle (int), fresh_courses (int). */
+    public static function scenario(array $options = []): array
+    {
+        $now = time();
+        $iso = static fn(int $timestamp): string => gmdate('Y-m-d\TH:i:s\Z', $timestamp);
+        $state = [
+            'next_id' => 5000,
+            'throttle' => (int)($options['throttle'] ?? 0),
+            'slow_seconds' => !empty($options['slow']) ? 20.0 : 0.0,
+            'slow_courses' => !empty($options['slow']) ? [1007] : [],
+            'accounts' => !empty($options['non_admin']) ? [] : [['id' => 1, 'name' => 'Example College', 'parent_account_id' => null, 'root_account_id' => null]],
+            'account_tools' => [],
+            'terms' => [
+                10 => ['id' => 10, 'name' => 'Fall 2026', 'start_at' => $iso($now - 30 * 86400), 'end_at' => $iso($now + 60 * 86400)],
+                11 => ['id' => 11, 'name' => 'Spring 2026', 'start_at' => $iso($now - 250 * 86400), 'end_at' => $iso($now - 130 * 86400)],
+                12 => ['id' => 12, 'name' => 'Spring 2027', 'start_at' => $iso($now + 100 * 86400), 'end_at' => $iso($now + 220 * 86400)],
+            ],
+            'courses' => [],
+            'calls' => [],
+        ];
+        if (!empty($options['account_tool'])) {
+            $state['account_tools'][] = self::tool(900, 'SLO Cloud Reporting', self::LAUNCH_URL, self::CONSUMER_KEY);
+        }
+
+        $add = static function (int $id, int $term, string $name, ?string $sis, array $extra = []) use (&$state): void {
+            $state['courses'][$id] = $extra + [
+                'id' => $id,
+                'name' => $name,
+                'course_code' => 'C' . $id,
+                'sis_course_id' => $sis,
+                'workflow_state' => 'available',
+                'enrollment_term_id' => $term,
+                'end_at' => null,
+                'restrict_enrollments_to_course_dates' => false,
+                'blueprint_child' => false,
+                'forbidden' => false,
+                'tools' => [],
+                'modules' => [],
+            ];
+        };
+
+        $add(1001, 10, 'ENG-101 Fresh course', '10001.202630');
+        $add(1002, 10, 'ENG-102 Already installed', '10002.202630', ['tools' => [self::tool(801, 'SLO Cloud Reporting', self::LAUNCH_URL . '/', self::CONSUMER_KEY)]]);
+        $add(1003, 10, 'ENG-103 Different key', '10003.202630', ['tools' => [self::tool(802, 'SLO Cloud', 'HTTPS://SLO.EXAMPLE.EDU:443/lti/launch.php', 'old-key')]]);
+        $add(1004, 10, 'ENG-104 Refreshed from production', '10004.202630', ['tools' => [self::tool(803, 'SLO Cloud Reporting', self::PROD_LAUNCH_URL, self::CONSUMER_KEY)]]);
+        $add(1005, 10, 'ENG-105 Blueprint child', '10005.202630', ['blueprint_child' => true]);
+        $add(1006, 10, 'ENG-106 No permission', '10006.202630', ['forbidden' => true]);
+        $add(1007, 10, 'ENG-107 Slow course', '10007.202630');
+        $add(1008, 10, 'ENG-108 No SIS ID', null);
+        $add(1009, 10, 'ENG-109 Odd SIS ID', 'SANDBOX-ENG109');
+        $add(1010, 10, 'ENG-110 Published module', '10010.202630', ['modules' => [['id' => 701, 'name' => 'SLO Cloud', 'published' => true, 'items' => []]]]);
+        $add(1011, 10, 'ENG-111 Link already there', '10011.202630', ['modules' => [[
+            'id' => 702, 'name' => 'Assessment', 'published' => false,
+            'items' => [['id' => 7020, 'type' => 'ExternalTool', 'title' => 'SLO', 'external_url' => self::LAUNCH_URL]],
+        ]]]);
+        $fresh = (int)($options['fresh_courses'] ?? 119);
+        for ($i = 0; $i < $fresh; $i++) {
+            $id = 1012 + $i;
+            $add($id, 10, 'SEC-' . $id . ' Section', (string)(20000 + $i) . '.202630');
+        }
+        for ($i = 0; $i < 5; $i++) {
+            $add(1200 + $i, 11, 'OLD-' . (1200 + $i) . ' Last spring', (string)(30000 + $i) . '.202610', $i === 0 ? ['workflow_state' => 'completed'] : []);
+        }
+        for ($i = 0; $i < 3; $i++) {
+            $add(1300 + $i, 12, 'NEW-' . (1300 + $i) . ' Next spring', (string)(40000 + $i) . '.202710', ['workflow_state' => 'unpublished']);
+        }
+        return $state;
+    }
+
+    public static function tool(int $id, string $name, ?string $url, string $key, string $privacy = 'public', ?string $domain = null): array
+    {
+        return ['id' => $id, 'name' => $name, 'url' => $url, 'domain' => $domain, 'consumer_key' => $key, 'privacy_level' => $privacy];
+    }
+
+    /** @return array{status: int, headers: array<string, list<string>>, body: string} */
+    public function handle(string $method, string $url, array $headers, ?string $body): array
+    {
+        $parts = parse_url($url);
+        $path = (string)($parts['path'] ?? '');
+        parse_str((string)($parts['query'] ?? ''), $query);
+        parse_str((string)$body, $form);
+        $origin = $parts['scheme'] . '://' . $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '');
+        $this->state['calls'][] = $method . ' ' . $path;
+
+        if (!in_array('Authorization: Bearer ' . self::TOKEN, $headers, true)) {
+            return self::json(401, ['errors' => [['message' => 'Invalid access token.']]]);
+        }
+        if ($this->state['throttle'] > 0) {
+            $this->state['throttle']--;
+            return ['status' => 403, 'headers' => ['x-rate-limit-remaining' => ['0']], 'body' => '403 Forbidden (Rate Limit Exceeded)'];
+        }
+
+        if (preg_match('#^/api/v1/courses/(\d+)#', $path, $match)) {
+            $course = $this->state['courses'][(int)$match[1]] ?? null;
+            if ($course !== null && in_array($course['id'], $this->state['slow_courses'], true) && $path !== '/api/v1/courses/' . $course['id']) {
+                ($this->latency)((float)$this->state['slow_seconds']);
+            }
+        }
+
+        $route = $method . ' ' . preg_replace('#/\d+#', '/:id', $path);
+        return match ($route) {
+            'GET /api/v1/users/self' => self::json(200, ['id' => 1, 'name' => 'Mock Admin']),
+            'GET /api/v1/accounts' => self::json(200, $this->state['accounts']),
+            'GET /api/v1/accounts/:id/terms' => self::json(200, ['enrollment_terms' => array_values($this->state['terms'])]),
+            'GET /api/v1/accounts/:id/external_tools' => self::json(200, $this->state['account_tools']),
+            'GET /api/v1/accounts/:id/courses' => $this->listCourses($query, $origin, $path),
+            'GET /api/v1/courses' => $this->listUserCourses($query, $origin, $path),
+            'GET /api/v1/courses/:id' => $this->course($path, fn(array $course): array => self::json(200, $this->publicCourse($course))),
+            'GET /api/v1/courses/:id/blueprint_subscriptions' => $this->course($path, static fn(array $course): array => self::json(200, $course['blueprint_child'] ? [['id' => 1, 'blueprint_course' => ['id' => 999]]] : [])),
+            'GET /api/v1/courses/:id/external_tools' => $this->course($path, function (array $course) use ($query): array {
+                if ($course['forbidden']) {
+                    return self::json(403, ['errors' => [['message' => 'user not authorized to perform that action']]]);
+                }
+                $tools = $course['tools'];
+                if (($query['include_parents'] ?? '') === 'true') {
+                    array_push($tools, ...$this->state['account_tools']);
+                }
+                return self::json(200, $tools);
+            }),
+            'POST /api/v1/courses/:id/external_tools' => $this->course($path, function (array $course) use ($form): array {
+                $tool = self::tool($this->state['next_id']++, (string)$form['name'], (string)$form['url'], (string)$form['consumer_key'], (string)$form['privacy_level']);
+                $tool['course_navigation'] = $form['course_navigation'] ?? null;
+                $tool['shared_secret_set'] = ($form['shared_secret'] ?? '') !== '';
+                $this->state['courses'][$course['id']]['tools'][] = $tool;
+                return self::json(200, $tool);
+            }),
+            'GET /api/v1/courses/:id/modules' => $this->course($path, static fn(array $course): array => self::json(200, $course['modules'])),
+            'POST /api/v1/courses/:id/modules' => $this->course($path, function (array $course) use ($form): array {
+                $module = ['id' => $this->state['next_id']++, 'name' => (string)$form['module']['name'], 'published' => false, 'items' => []];
+                $this->state['courses'][$course['id']]['modules'][] = $module;
+                return self::json(200, $module);
+            }),
+            'POST /api/v1/courses/:id/modules/:id/items' => $this->course($path, function (array $course) use ($form, $path): array {
+                preg_match('#/modules/(\d+)/items#', $path, $moduleMatch);
+                foreach ($this->state['courses'][$course['id']]['modules'] as &$module) {
+                    if ($module['id'] === (int)$moduleMatch[1]) {
+                        $item = ['id' => $this->state['next_id']++, 'published' => false] + $form['module_item'];
+                        $module['items'][] = $item;
+                        return self::json(200, $item);
+                    }
+                }
+                return self::json(404, ['errors' => [['message' => 'module not found']]]);
+            }),
+            'PUT /api/v1/courses/:id/external_tools/:id' => $this->course($path, function (array $course) use ($path, $form): array {
+                preg_match('#/external_tools/(\d+)#', $path, $toolMatch);
+                foreach ($this->state['courses'][$course['id']]['tools'] as &$tool) {
+                    if ($tool['id'] === (int)$toolMatch[1]) {
+                        $tool['consumer_key'] = (string)($form['consumer_key'] ?? $tool['consumer_key']);
+                        $tool['shared_secret_set'] = ($form['shared_secret'] ?? '') !== '';
+                        return self::json(200, $tool);
+                    }
+                }
+                return self::json(404, ['errors' => [['message' => 'tool not found']]]);
+            }),
+            'DELETE /api/v1/courses/:id/external_tools/:id' => $this->course($path, function (array $course) use ($path): array {
+                preg_match('#/external_tools/(\d+)#', $path, $toolMatch);
+                $tools = $this->state['courses'][$course['id']]['tools'];
+                $kept = array_values(array_filter($tools, static fn(array $tool): bool => $tool['id'] !== (int)$toolMatch[1]));
+                if (count($kept) === count($tools)) {
+                    return self::json(404, ['errors' => [['message' => 'tool not found']]]);
+                }
+                $this->state['courses'][$course['id']]['tools'] = $kept;
+                return self::json(200, ['id' => (int)$toolMatch[1]]);
+            }),
+            'DELETE /api/v1/courses/:id/modules/:id/items/:id' => $this->course($path, function (array $course) use ($path): array {
+                preg_match('#/modules/(\d+)/items/(\d+)#', $path, $m);
+                foreach ($this->state['courses'][$course['id']]['modules'] as &$module) {
+                    if ($module['id'] === (int)$m[1]) {
+                        $module['items'] = array_values(array_filter($module['items'], static fn(array $item): bool => $item['id'] !== (int)$m[2]));
+                        return self::json(200, ['id' => (int)$m[2]]);
+                    }
+                }
+                return self::json(404, ['errors' => [['message' => 'module not found']]]);
+            }),
+            'DELETE /api/v1/courses/:id/modules/:id' => $this->course($path, function (array $course) use ($path): array {
+                preg_match('#/modules/(\d+)#', $path, $m);
+                $this->state['courses'][$course['id']]['modules'] = array_values(array_filter(
+                    $this->state['courses'][$course['id']]['modules'],
+                    static fn(array $module): bool => $module['id'] !== (int)$m[1]
+                ));
+                return self::json(200, ['id' => (int)$m[1]]);
+            }),
+            default => self::json(404, ['errors' => [['message' => 'No such mock route: ' . $route]]]),
+        };
+    }
+
+    private function course(string $path, callable $then): array
+    {
+        preg_match('#^/api/v1/courses/(\d+)#', $path, $match);
+        $course = $this->state['courses'][(int)$match[1]] ?? null;
+        return $course === null ? self::json(404, ['errors' => [['message' => 'The specified resource does not exist.']]]) : $then($course);
+    }
+
+    private function publicCourse(array $course): array
+    {
+        $term = $this->state['terms'][$course['enrollment_term_id']] ?? null;
+        return [
+            'id' => $course['id'],
+            'name' => $course['name'],
+            'course_code' => $course['course_code'],
+            'sis_course_id' => $course['sis_course_id'],
+            'workflow_state' => $course['workflow_state'],
+            'end_at' => $course['end_at'],
+            'restrict_enrollments_to_course_dates' => $course['restrict_enrollments_to_course_dates'],
+            'enrollment_term_id' => $course['enrollment_term_id'],
+            'term' => $term === null ? null : ['id' => $term['id'], 'name' => $term['name'], 'end_at' => $term['end_at']],
+        ];
+    }
+
+    private function listCourses(array $query, string $origin, string $path): array
+    {
+        $states = $query['state'] ?? ['created', 'claimed', 'available', 'unpublished'];
+        $matches = [];
+        foreach ($this->state['courses'] as $course) {
+            $state = $course['workflow_state'] === 'unpublished' ? 'claimed' : $course['workflow_state'];
+            if (!in_array($state, $states, true)) {
+                continue;
+            }
+            if (isset($query['enrollment_term_id']) && (int)$query['enrollment_term_id'] !== $course['enrollment_term_id']) {
+                continue;
+            }
+            if (isset($query['blueprint_associated']) && ($query['blueprint_associated'] === 'true') !== $course['blueprint_child']) {
+                continue;
+            }
+            if (isset($query['ends_after'])) {
+                $end = $this->state['terms'][$course['enrollment_term_id']]['end_at'] ?? null;
+                if ($end !== null && strtotime($end) < strtotime((string)$query['ends_after'])) {
+                    continue;
+                }
+            }
+            $matches[] = $this->publicCourse($course);
+        }
+        $perPage = max(1, (int)($query['per_page'] ?? 10));
+        $page = max(1, (int)($query['page'] ?? 1));
+        $slice = array_slice($matches, ($page - 1) * $perPage, $perPage);
+        $headers = [];
+        if ($page * $perPage < count($matches)) {
+            $next = $query;
+            $next['page'] = $page + 1;
+            $headers['link'] = ['<' . $origin . $path . '?' . http_build_query($next) . '>; rel="next"'];
+        }
+        return ['status' => 200, 'headers' => $headers + ['x-rate-limit-remaining' => ['650.0']], 'body' => (string)json_encode($slice)];
+    }
+
+    /** The courses the token's owner is enrolled in (GET /api/v1/courses), each with an enrollments list. */
+    private function listUserCourses(array $query, string $origin, string $path): array
+    {
+        $states = $query['state'] ?? ['unpublished', 'available'];
+        $matches = [];
+        foreach ($this->state['courses'] as $course) {
+            if (!in_array($course['workflow_state'], $states, true)) {
+                continue;
+            }
+            // Every course is taught by the token owner except the "No permission" one, where they are a student.
+            $type = $course['forbidden'] ? 'student' : 'teacher';
+            $matches[] = $this->publicCourse($course) + ['enrollments' => [['type' => $type, 'role' => ucfirst($type) . 'Enrollment']]];
+        }
+        $perPage = max(1, (int)($query['per_page'] ?? 10));
+        $page = max(1, (int)($query['page'] ?? 1));
+        $slice = array_slice($matches, ($page - 1) * $perPage, $perPage);
+        $headers = [];
+        if ($page * $perPage < count($matches)) {
+            $next = $query;
+            $next['page'] = $page + 1;
+            $headers['link'] = ['<' . $origin . $path . '?' . http_build_query($next) . '>; rel="next"'];
+        }
+        return ['status' => 200, 'headers' => $headers + ['x-rate-limit-remaining' => ['650.0']], 'body' => (string)json_encode($slice)];
+    }
+
+    private static function json(int $status, mixed $data): array
+    {
+        return ['status' => $status, 'headers' => ['x-rate-limit-remaining' => ['650.0']], 'body' => (string)json_encode($data)];
+    }
+}

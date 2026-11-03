@@ -447,8 +447,11 @@ final class CanvasDeployRun
             $effective[$key] = $typed !== '' ? $typed : ($key === 'consumer_secret' ? (string)($this->lti[$key] ?? '') : trim((string)($this->lti[$key] ?? '')));
         }
         $ltiErrors = [];
+        // Must be the LTI launch URL itself, not the site address: a bare site address can match
+        // a different tool on the same domain.
         $launchOk = filter_var($effective['launch_url'], FILTER_VALIDATE_URL) !== false
-            && strtolower((string)parse_url($effective['launch_url'], PHP_URL_SCHEME)) === 'https';
+            && strtolower((string)parse_url($effective['launch_url'], PHP_URL_SCHEME)) === 'https'
+            && str_ends_with(strtolower(rtrim((string)parse_url($effective['launch_url'], PHP_URL_PATH), '/')), '/lti/launch.php');
         if (!$launchOk) {
             $ltiErrors['lti_launch_url'] = 'Enter the SLO Cloud LTI launch URL, an https address ending in /lti/launch.php.';
         }

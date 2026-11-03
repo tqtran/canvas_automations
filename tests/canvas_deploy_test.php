@@ -540,6 +540,22 @@ $check(($byId[1001]['tool'] ?? '') === 'needs_credentials' && ($byId[1001]['stat
 $check(($urlOnlyCanvas->state['courses'][1001]['tools'] ?? []) === [] && ($urlOnlyCanvas->state['courses'][1001]['modules'] ?? []) === [], 'Something was written to a course that was skipped for missing credentials.');
 $check(($byId[1002]['tool'] ?? '') === 'present' && ($byId[1003]['tool'] ?? '') === 'present', 'Existing tools were not recognized without credentials.');
 $check(!array_filter($byId[1003]['notes'] ?? [], static fn(string $note): bool => str_contains($note, 'different consumer key')), 'A consumer key warning was shown although no key was entered.');
+
+// A site address instead of the launch URL is refused.
+$siteUrl = $urlOnly->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'lti_launch_url' => 'https://slo.example.edu/SLO']));
+$check($siteUrl['status'] === 422 && array_keys($siteUrl['body']['fields'] ?? []) === ['lti_launch_url'], 'A launch URL not ending in /lti/launch.php was accepted.');
+
+// A matching tool without a nav placement is reported by name.
+$noNavCanvas = new FakeCanvas(FakeCanvas::scenario(), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
+$noNavCanvas->state['courses'][1002]['tools'][0]['course_navigation'] = null;
+$noNavStore = [];
+$noNav = $noLti($noNavStore, $noNavCanvas);
+$started = $noNav->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1002', 'lti_launch_url' => $launch]));
+$batches = [];
+$rows = $runAll($noNav, $started['body']['run_id'], $started['body']['run_key'], $batches);
+$noNav->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
+$check(($rows[0]['tool'] ?? '') === 'present' && ($rows[0]['status'] ?? '') === 'warning'
+    && array_filter($rows[0]['notes'] ?? [], static fn(string $note): bool => str_contains($note, 'no Course Navigation link') && str_contains($note, 'id 801')), 'A matched tool without a nav link was not reported.');
 $removeNeedsUrl = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'operation' => 'remove']));
 $check($removeNeedsUrl['status'] === 422 && array_keys($removeNeedsUrl['body']['fields'] ?? []) === ['lti_launch_url'], 'Removing should only need the launch URL.');
 $started = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'lti_launch_url' => $launch, 'lti_consumer_key' => 'typed-key', 'lti_consumer_secret' => 'typed-secret']));

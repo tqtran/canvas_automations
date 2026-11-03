@@ -376,6 +376,12 @@ final class CanvasLtiDeployer
                 $notes[] = 'SLO Cloud comes from the account, so its credentials cannot be updated from this course.';
             }
             array_push($notes, ...self::toolWarnings($match, (string)$this->settings['consumer_key']));
+            // Canvas sends course_navigation as null when the tool has no nav placement.
+            if (array_key_exists('course_navigation', $match) && empty($match['course_navigation'])) {
+                $notes[] = 'Matched existing tool "' . (string)($match['name'] ?? '') . '" (id ' . (int)($match['id'] ?? 0)
+                    . ', ' . ((string)($match['url'] ?? '') !== '' ? (string)$match['url'] : 'domain ' . (string)($match['domain'] ?? ''))
+                    . '), but it has no Course Navigation link, so no nav item appears.';
+            }
             return 'present';
         }
         if ((string)($this->settings['consumer_key'] ?? '') === '' || (string)($this->settings['consumer_secret'] ?? '') === '') {

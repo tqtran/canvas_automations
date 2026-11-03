@@ -492,6 +492,12 @@ final class CanvasDeployRun
                 $accountTool = false;
                 continue;
             }
+            if (($doubt = CanvasLtiDeployer::doubtfulMatch($match)) !== null) {
+                // Not trusted, so each course is checked and reported on its own.
+                $accountTool = false;
+                $notes[] = 'Account "' . (string)($account['name'] ?? $account['id']) . '": ' . $doubt;
+                continue;
+            }
             foreach (CanvasLtiDeployer::toolWarnings($match, $effective['consumer_key']) as $warning) {
                 $notes[] = 'Account "' . (string)($account['name'] ?? $account['id']) . '": ' . $warning;
             }

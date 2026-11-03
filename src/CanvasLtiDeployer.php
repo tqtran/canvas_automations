@@ -95,6 +95,24 @@ final class CanvasLtiDeployer
         return $foreign;
     }
 
+    /**
+     * Why a matched tool cannot be trusted as SLO Cloud, or null when it can: matched only by
+     * domain (it may be another app on the same server), or no Course Navigation link
+     * (Canvas sends course_navigation as null then).
+     */
+    public static function doubtfulMatch(array $tool): ?string
+    {
+        $describe = '"' . (string)($tool['name'] ?? '') . '" (id ' . (int)($tool['id'] ?? 0) . ', '
+            . ((string)($tool['url'] ?? '') !== '' ? (string)$tool['url'] : 'domain ' . (string)($tool['domain'] ?? '')) . ')';
+        if (self::normalizeUrl($tool['url'] ?? null) === null) {
+            return 'Matched tool ' . $describe . ' only by its domain, so it may not be SLO Cloud. Nothing was added; check it in Canvas.';
+        }
+        if (array_key_exists('course_navigation', $tool) && empty($tool['course_navigation'])) {
+            return 'Matched tool ' . $describe . ', but it has no Course Navigation link. Nothing was added; fix or remove that tool in Canvas.';
+        }
+        return null;
+    }
+
     /** Warnings about an existing SLO Cloud tool that is left alone. */
     public static function toolWarnings(array $tool, string $consumerKey): array
     {
@@ -220,8 +238,8 @@ final class CanvasLtiDeployer
             $row['notes'][] = 'Tool step failed: ' . $exception->getMessage();
             return $row;
         }
-        if ($row['tool'] === 'needs_credentials') {
-            // No tool to link to, so the module step is skipped too.
+        if ($row['tool'] === 'needs_credentials' || $row['tool'] === 'doubtful') {
+            // No trustworthy tool to link to, so nothing is added to the course.
             $row['module'] = empty($this->settings['create_module']) ? 'off' : 'skipped';
             $row['status'] = 'skipped';
             return $row;
@@ -357,6 +375,10 @@ final class CanvasLtiDeployer
         }
 
         $match = self::findMatchingTool($tools, $launchUrl);
+        if ($match !== null && ($doubt = self::doubtfulMatch($match)) !== null) {
+            $notes[] = $doubt;
+            return 'doubtful';
+        }
         if ($match !== null) {
             if (!empty($this->settings['update_existing'])) {
                 // Only a tool that belongs to this course can be changed from it; Canvas never
@@ -376,12 +398,6 @@ final class CanvasLtiDeployer
                 $notes[] = 'SLO Cloud comes from the account, so its credentials cannot be updated from this course.';
             }
             array_push($notes, ...self::toolWarnings($match, (string)$this->settings['consumer_key']));
-            // Canvas sends course_navigation as null when the tool has no nav placement.
-            if (array_key_exists('course_navigation', $match) && empty($match['course_navigation'])) {
-                $notes[] = 'Matched existing tool "' . (string)($match['name'] ?? '') . '" (id ' . (int)($match['id'] ?? 0)
-                    . ', ' . ((string)($match['url'] ?? '') !== '' ? (string)$match['url'] : 'domain ' . (string)($match['domain'] ?? ''))
-                    . '), but it has no Course Navigation link, so no nav item appears.';
-            }
             return 'present';
         }
         if ((string)($this->settings['consumer_key'] ?? '') === '' || (string)($this->settings['consumer_secret'] ?? '') === '') {

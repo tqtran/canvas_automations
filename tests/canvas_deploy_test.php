@@ -545,17 +545,24 @@ $check(!array_filter($byId[1003]['notes'] ?? [], static fn(string $note): bool =
 $siteUrl = $urlOnly->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'lti_launch_url' => 'https://slo.example.edu/SLO']));
 $check($siteUrl['status'] === 422 && array_keys($siteUrl['body']['fields'] ?? []) === ['lti_launch_url'], 'A launch URL not ending in /lti/launch.php was accepted.');
 
-// A matching tool without a nav placement is reported by name.
+// Doubtful matches (no nav link, or matched only by domain) are reported and nothing is added.
 $noNavCanvas = new FakeCanvas(FakeCanvas::scenario(), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
 $noNavCanvas->state['courses'][1002]['tools'][0]['course_navigation'] = null;
+$noNavCanvas->state['courses'][1001]['tools'] = [FakeCanvas::tool(805, 'Coastline Portal', null, 'other-key', 'public', 'slo.example.edu')];
 $noNavStore = [];
 $noNav = $noLti($noNavStore, $noNavCanvas);
-$started = $noNav->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1002', 'lti_launch_url' => $launch]));
+$started = $noNav->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001,1002', 'create_module' => '1', 'lti_launch_url' => $launch, 'lti_consumer_key' => 'k', 'lti_consumer_secret' => 's']));
 $batches = [];
 $rows = $runAll($noNav, $started['body']['run_id'], $started['body']['run_key'], $batches);
 $noNav->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
-$check(($rows[0]['tool'] ?? '') === 'present' && ($rows[0]['status'] ?? '') === 'warning'
-    && array_filter($rows[0]['notes'] ?? [], static fn(string $note): bool => str_contains($note, 'no Course Navigation link') && str_contains($note, 'id 801')), 'A matched tool without a nav link was not reported.');
+$byId = array_column($rows, null, 'course_id');
+$hasNote = static fn(array $row, string $text): bool => (bool)array_filter($row['notes'] ?? [], static fn(string $note): bool => str_contains($note, $text));
+$check(($byId[1002]['tool'] ?? '') === 'doubtful' && ($byId[1002]['status'] ?? '') === 'skipped' && ($byId[1002]['module'] ?? '') === 'skipped'
+    && $hasNote($byId[1002], 'no Course Navigation link') && $hasNote($byId[1002], 'id 801'), 'A matched tool without a nav link was not reported and skipped.');
+$check(($byId[1001]['tool'] ?? '') === 'doubtful' && ($byId[1001]['status'] ?? '') === 'skipped'
+    && $hasNote($byId[1001], 'only by its domain') && $hasNote($byId[1001], 'Coastline Portal'), 'A domain-only match was not reported and skipped.');
+$check(count($noNavCanvas->state['courses'][1001]['tools']) === 1 && $noNavCanvas->state['courses'][1001]['modules'] === []
+    && $noNavCanvas->state['courses'][1002]['modules'] === [], 'Something was added to a course with a doubtful match.');
 $removeNeedsUrl = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'operation' => 'remove']));
 $check($removeNeedsUrl['status'] === 422 && array_keys($removeNeedsUrl['body']['fields'] ?? []) === ['lti_launch_url'], 'Removing should only need the launch URL.');
 $started = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'lti_launch_url' => $launch, 'lti_consumer_key' => 'typed-key', 'lti_consumer_secret' => 'typed-secret']));

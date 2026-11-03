@@ -412,7 +412,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
         module_name: ['cdModuleName', 'cdModuleNameError'], course_delay_ms: ['cdDelay', 'cdDelayError'], scope: ['cdScopeCourse', 'cdScopeError'],
     };
     const labels = {
-        tool: { updated: 'Updated', would_update: 'Would update', removed: 'Removed', would_remove: 'Would remove', absent: 'Not installed', created: 'Created', would_create: 'Would create', present: 'Already present', present_account: 'Present (account level)', needs_credentials: 'Needs key and secret', skipped: 'Skipped', failed: 'Failed' },
+        tool: { updated: 'Updated', would_update: 'Would update', removed: 'Removed', would_remove: 'Would remove', absent: 'Not installed', created: 'Created', would_create: 'Would create', present: 'Already present', present_account: 'Present (account level)', needs_credentials: 'Needs key and secret', doubtful: 'Other tool matched, nothing added', skipped: 'Skipped', failed: 'Failed' },
         module: { removed: 'Link removed', would_remove: 'Would remove link', none: 'None found', created: 'Module created', added: 'Link added', would_create: 'Would create module', would_add: 'Would add link', present: 'Already present', off: 'Not requested', skipped: 'Skipped', failed: 'Failed' },
         status: { ok: 'OK', warning: 'Warning', failed: 'Failed', skipped: 'Skipped' },
         scope: { picked: 'Courses I choose', course: 'Course by Canvas ID', term: 'Term', active: 'All active courses', all: 'All courses, including concluded' },
@@ -822,7 +822,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
             [dryRun ? 'Module links to remove' : 'Module links removed', dryRun ? counts.module_would_remove : counts.module_removed],
             ['Warnings', counts.warnings],
             ['Failed', counts.failed],
-            ['Skipped (Blueprint child)', counts.skipped],
+            ['Skipped (see notes)', counts.skipped],
             ['Concluded, not included', counts.out_of_scope],
         ] : [
             ['Courses processed', counts.processed],
@@ -833,7 +833,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
             ['Module link already present', counts.module_present],
             ['Warnings', counts.warnings],
             ['Failed', counts.failed],
-            ['Skipped (Blueprint child)', counts.skipped],
+            ['Skipped (see notes)', counts.skipped],
             ['Concluded, not included', counts.out_of_scope],
         ];
         els.counts.replaceChildren();

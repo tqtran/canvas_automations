@@ -16,6 +16,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], (string)$_POST['csrf_token'])) {
+    $audit('request_failed', ['action' => (string)($_POST['action'] ?? ''), 'status' => 403, 'reply' => '{"ok":false,"error":"csrf"}']);
+    error_log('canvas_automations: request failed 403 csrf');
     http_response_code(403);
     echo json_encode(['ok' => false, 'error' => 'csrf', 'message' => 'Your page expired. Reload it and try again.']);
     exit;
@@ -24,6 +26,25 @@ if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], (strin
 @set_time_limit(90);
 
 $action = (string)($_POST['action'] ?? '');
+// Write every rejected request and its reason to var/audit.log and the PHP error log,
+// because a proxy or IIS may replace the reply before the page can show it.
+$logFailure = static function (int $status, array $body) use ($audit, $action): void {
+    // The raw request (secrets blanked) and the exact reply body, unfiltered.
+    $request = $_POST;
+    foreach (['canvas_token', 'lti_consumer_secret', 'csrf_token', 'run_key'] as $secret) {
+        if (isset($request[$secret])) {
+            $request[$secret] = '[hidden, ' . strlen((string)$request[$secret]) . ' chars]';
+        }
+    }
+    $entry = [
+        'action' => $action,
+        'status' => $status,
+        'request' => $request,
+        'reply' => json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+    ];
+    $audit('request_failed', $entry);
+    error_log('canvas_automations: request failed ' . json_encode($entry, JSON_UNESCAPED_SLASHES));
+};
 // The person picks their Canvas. Anyone can reach this endpoint, so a URL other than the
 // configured one must be a public https host (and on the allowed list, when there is one);
 // otherwise this would be a relay into the server's own network.
@@ -40,9 +61,11 @@ $normalize = static function (string $url): string {
 };
 $postedCanvas = $normalize((string)$_POST['base_url']);
 $sameCanvas = $postedCanvas !== '' && $configuredCanvas !== '' && $postedCanvas === $normalize($configuredCanvas);
-$refuse = static function (string $message): never {
+$refuse = static function (string $message) use ($logFailure): never {
+    $body = ['ok' => false, 'error' => 'canvas_url', 'message' => $message, 'fields' => ['base_url' => $message]];
+    $logFailure(422, $body);
     http_response_code(422);
-    echo json_encode(['ok' => false, 'error' => 'canvas_url', 'message' => $message, 'fields' => ['base_url' => $message]]);
+    echo json_encode($body);
     exit;
 };
 if ($postedCanvas !== '' && !$sameCanvas) {
@@ -104,6 +127,7 @@ if (is_file($throttleFile)) {
         static fn($at): bool => is_int($at) && $at > time() - 900
     ));
     if (count($failures) >= 10) {
+        $logFailure(429, ['error' => 'throttled', 'message' => 'Too many rejected tokens from this address.']);
         http_response_code(429);
         header('Retry-After: 900');
         echo json_encode(['ok' => false, 'error' => 'throttled', 'message' => 'Too many rejected tokens. Wait 15 minutes, then try again.']);
@@ -128,6 +152,9 @@ if ($action === 'run_batch') {
     }
 } else {
     $_SESSION['canvas_deploy'] = $store;
+}
+if ($response['status'] >= 400) {
+    $logFailure($response['status'], $response['body']);
 }
 http_response_code($response['status']);
 echo json_encode($response['body'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);

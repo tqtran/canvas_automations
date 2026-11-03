@@ -35,6 +35,9 @@ PHP 8.2 or newer with the `curl` or `openssl` extension, and `mbstring`.
 3. Make `var/` (or `data_dir`) writable by the web server.
 4. Set `CANVAS_AUTOMATIONS_ENV=production` in production. Plain http is then refused even for
    loopback Canvas URLs.
+5. On IIS, keep `public/web.config`. It sets `httpErrors existingResponse="PassThrough"` so
+   the app's own error messages reach the page; without it IIS replaces them with "The custom
+   error module does not recognize this error."
 
 ### Tests
 

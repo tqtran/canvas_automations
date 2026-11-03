@@ -100,9 +100,9 @@ $lti = $sameCanvas ? [
 
 $store = is_array($_SESSION['canvas_deploy'] ?? null) ? $_SESSION['canvas_deploy'] : [];
 $batchRunId = $store['run']['id'] ?? null;
-if ($action === 'run_batch') {
-    // A batch talks to Canvas for about 20 seconds. Release the session lock so
-    // other tabs are not blocked meanwhile.
+if ($action === 'run_batch' || $action === 'course_flags') {
+    // These talk to Canvas for several seconds. Release the session lock so other
+    // requests (and parallel flag checks) are not blocked meanwhile.
     session_write_close();
 }
 $service = new CanvasDeployRun(
@@ -152,7 +152,8 @@ if ($action === 'run_batch') {
     if (($_SESSION['canvas_deploy']['run']['id'] ?? null) === $batchRunId) {
         $_SESSION['canvas_deploy'] = $store;
     }
-} else {
+} elseif ($action !== 'course_flags') {
+    // course_flags only reads Canvas, so it has nothing to save.
     $_SESSION['canvas_deploy'] = $store;
 }
 if ($response['status'] >= 400) {

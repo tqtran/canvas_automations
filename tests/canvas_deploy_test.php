@@ -641,6 +641,11 @@ $check(($f['1001'] ?? []) === array_merge($f['1001'] ?? [], ['app' => 'no', 'nav
     && ($f['1002']['app'] ?? '') === 'yes' && ($f['1002']['nav'] ?? '') === 'yes' && ($f['1002']['module'] ?? '') === 'no'
     && ($f['1011']['module'] ?? '') === 'yes', 'Course list flags are wrong.');
 $check(!array_filter(array_slice($flagsCanvas->state['calls'], $callsBefore), static fn(string $call): bool => !str_starts_with($call, 'GET ')), 'Course list flags changed something in Canvas.');
+// A slow course: the call stops starting new courses after the soft limit and hands the rest back.
+$flagsCanvas->state['slow_courses'] = [1001];
+$flagsCanvas->state['slow_seconds'] = 7;
+$slow = $flagsService->dispatch('course_flags', ['base_url' => 'https://canvas.test', 'canvas_token' => FakeCanvas::TOKEN, 'lti_launch_url' => $launch, 'course_ids' => '1001,1002,1011']);
+$check(isset($slow['body']['flags']['1001']) && ($slow['body']['pending'] ?? []) === [1002, 1011], 'Course flags did not stop early and hand back the remaining courses.');
 $removeNeedsUrl = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'operation' => 'remove']));
 $check($removeNeedsUrl['status'] === 422 && array_keys($removeNeedsUrl['body']['fields'] ?? []) === ['lti_launch_url'], 'Removing should only need the launch URL.');
 $started = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'lti_launch_url' => $launch, 'lti_consumer_key' => 'typed-key', 'lti_consumer_secret' => 'typed-secret']));

@@ -359,8 +359,12 @@ final class CanvasDeployRun
         ];
     }
 
-    /** Most courses checked per course_flags call, to stay well inside the request time. */
-    public const FLAGS_PER_CALL = 10;
+    /** Most courses checked per course_flags call. */
+    public const FLAGS_PER_CALL = 5;
+    /** No new course is started after this many seconds, so a call ends well before proxy or gateway timeouts. */
+    public const FLAGS_SOFT_SECONDS = 12.0;
+    /** Hard cap for a single course_flags call. */
+    public const FLAGS_HARD_SECONDS = 20.0;
 
     /**
      * App / nav / module flags for up to FLAGS_PER_CALL courses, read-only. The launch URL
@@ -376,12 +380,20 @@ final class CanvasDeployRun
             array_map('intval', preg_split('/[\s,]+/', $courseIds, -1, PREG_SPLIT_NO_EMPTY) ?: []),
             static fn(int $id): bool => $id > 0
         ))), 0, self::FLAGS_PER_CALL);
-        $client = $this->client($baseUrl, $token, $this->now() + self::HARD_DEADLINE);
+        $started = $this->now();
+        $client = $this->client($baseUrl, $token, $started + self::FLAGS_HARD_SECONDS);
         $flags = [];
-        foreach ($ids as $id) {
+        $pending = [];
+        foreach ($ids as $index => $id) {
+            // Stop starting new courses after the soft limit; the page asks again for the rest.
+            if ($index > 0 && $this->now() - $started > self::FLAGS_SOFT_SECONDS) {
+                $pending = array_slice($ids, $index);
+                break;
+            }
             try {
                 $flags[(string)$id] = CanvasLtiDeployer::inspectCourse($client, $id, $launchUrl);
             } catch (CanvasDeadlineExceeded) {
+                $pending = array_slice($ids, $index);
                 break;
             } catch (CanvasApiException $exception) {
                 if ($exception->status() === 401) {
@@ -390,7 +402,7 @@ final class CanvasDeployRun
                 $flags[(string)$id] = ['app' => 'error', 'nav' => 'error', 'module' => 'error', 'tool' => $exception->getMessage()];
             }
         }
-        return ['flags' => $flags, 'launch_url_known' => true];
+        return ['flags' => $flags, 'pending' => $pending, 'launch_url_known' => true];
     }
 
     /**

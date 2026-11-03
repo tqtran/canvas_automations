@@ -51,7 +51,24 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
         <form id="canvasDeployForm" novalidate>
             <div class="card card-primary card-outline mb-4">
                 <div class="card-header">
-                    <h2 class="card-title d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-primary">1</span> Connect to Canvas</h2>
+                    <h2 class="card-title d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-primary">1</span> What should this run do?</h2>
+                </div>
+                <div class="card-body">
+                    <fieldset class="border-0 p-0 m-0">
+                        <legend class="visually-hidden">What should this run do?</legend>
+                        <div class="btn-group" role="group" aria-label="Install or remove">
+                            <input class="btn-check" type="radio" name="operation" id="cdOpDeploy" value="deploy" checked>
+                            <label class="btn btn-outline-primary" for="cdOpDeploy"><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>Install SLO Cloud</label>
+                            <input class="btn-check" type="radio" name="operation" id="cdOpRemove" value="remove">
+                            <label class="btn btn-outline-danger" for="cdOpRemove"><i class="bi bi-trash me-1" aria-hidden="true"></i>Remove SLO Cloud</label>
+                        </div>
+                        <div class="form-text" id="cdOpHelp">Removing deletes the course navigation tool and any module link to it. An emptied, unpublished module with the module name set below is deleted too. A tool installed at the account level is reported, not removed.</div>
+                    </fieldset>
+                </div>
+            </div>
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h2 class="card-title d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-primary">2</span> Connect to Canvas</h2>
                 </div>
                 <div class="card-body">
                     <div class="d-none" id="cdConnectedBar">
@@ -85,7 +102,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
             <div id="cdAfterConnect" class="d-none">
             <div class="card mb-4" id="cdCoursesCard">
                 <div class="card-header">
-                    <h2 class="card-title d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-primary">2</span> Choose courses</h2>
+                    <h2 class="card-title d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-primary">3</span> Choose courses</h2>
                 </div>
                 <div class="card-body">
                     <fieldset class="border-0 p-0 m-0" aria-describedby="cdScopeError">
@@ -177,7 +194,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
 
             <div class="card mb-4">
                 <div class="card-header">
-                    <h2 class="card-title d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-primary">3</span> What to install</h2>
+                    <h2 class="card-title d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-primary">4</span> What to install</h2>
                 </div>
                 <div class="card-body">
                     <div class="mb-3">
@@ -243,7 +260,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
 
             <div class="card mb-4">
                 <div class="card-header">
-                    <h2 class="card-title d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-primary">4</span> Review and run</h2>
+                    <h2 class="card-title d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-primary">5</span> Review and run</h2>
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
@@ -259,16 +276,6 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                             <tbody id="cdSummaryBody"></tbody>
                         </table>
                     </div>
-                    <fieldset class="border-0 p-0 mb-3">
-                        <legend class="form-label fs-6">What should this run do?</legend>
-                        <div class="btn-group" role="group" aria-label="Install or remove">
-                            <input class="btn-check" type="radio" name="operation" id="cdOpDeploy" value="deploy" checked>
-                            <label class="btn btn-outline-primary" for="cdOpDeploy"><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>Install SLO Cloud</label>
-                            <input class="btn-check" type="radio" name="operation" id="cdOpRemove" value="remove">
-                            <label class="btn btn-outline-danger" for="cdOpRemove"><i class="bi bi-trash me-1" aria-hidden="true"></i>Remove SLO Cloud</label>
-                        </div>
-                        <div class="form-text" id="cdOpHelp">Removing deletes the course navigation tool and any module link to it. An emptied, unpublished module with the module name above is deleted too. A tool installed at the account level is reported, not removed.</div>
-                    </fieldset>
                     <div class="form-check mb-3" id="cdUpdateWrap">
                         <input class="form-check-input" type="checkbox" id="cdUpdateExisting">
                         <label class="form-check-label" for="cdUpdateExisting">Also update tools that are already in the course to use these credentials</label>
@@ -768,29 +775,57 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
         renderCourses();
         if (!courses.length) { els.flagsStatus.textContent = ''; return; }
         const launch = els.ltiOwn.checked ? els.ltiUrl.value.trim() : '';
-        const ids = courses.map((course) => course.id);
-        for (let start = 0; start < ids.length; start += 10) {
-            if (generation !== flagsGeneration) return;
-            els.flagsStatus.textContent = 'Checking SLO Cloud in each course: ' + start + ' of ' + ids.length + '…';
-            let result;
-            try {
-                result = await post('course_flags', {
-                    base_url: els.baseUrl.value.trim(), canvas_token: els.token.value,
-                    lti_launch_url: launch, course_ids: ids.slice(start, start + 10).join(','),
+        // Small requests (3 courses), 3 at a time. The server stops early and hands back any
+        // course it did not reach; a course that keeps failing is marked "!" so the rest go on.
+        const queue = courses.map((course) => course.id);
+        const attempts = new Map();
+        const total = queue.length;
+        let stopped = '';
+        const progress = () => {
+            if (generation === flagsGeneration && !stopped) {
+                els.flagsStatus.textContent = 'Checking SLO Cloud in each course: ' + courseFlags.size + ' of ' + total + '…';
+            }
+        };
+        const markError = (ids, message) => ids.forEach((id) => courseFlags.set(id, { app: 'error', nav: 'error', module: 'error', tool: message }));
+        const worker = async () => {
+            while (queue.length && !stopped && generation === flagsGeneration) {
+                const batch = queue.splice(0, 3);
+                let result;
+                try {
+                    result = await post('course_flags', {
+                        base_url: els.baseUrl.value.trim(), canvas_token: els.token.value,
+                        lti_launch_url: launch, course_ids: batch.join(','),
+                    });
+                } catch (error) {
+                    if (generation !== flagsGeneration) return;
+                    if (error.error === 'canvas_token' || error.canvas_status === 401) { stopped = error.message || 'The Canvas token was refused.'; return; }
+                    markError(batch, error.message || 'Could not check');
+                    renderCourses();
+                    progress();
+                    continue;
+                }
+                if (generation !== flagsGeneration) return;
+                if (!result.launch_url_known) { stopped = 'launch_url'; return; }
+                Object.entries(result.flags || {}).forEach(([id, flags]) => courseFlags.set(Number(id), flags));
+                (result.pending || []).forEach((id) => {
+                    const tries = (attempts.get(id) || 0) + 1;
+                    attempts.set(id, tries);
+                    if (tries >= 3) markError([id], 'Canvas was too slow to check this course'); else queue.push(id);
                 });
-            } catch (error) {
-                if (generation === flagsGeneration) els.flagsStatus.textContent = 'Could not check courses: ' + (error.message || 'unknown error');
-                return;
+                renderCourses();
+                progress();
             }
-            if (generation !== flagsGeneration) return;
-            if (!result.launch_url_known) {
-                els.flagsStatus.textContent = 'Enter the SLO Cloud LTI launch URL below to see which courses already have the app, nav link and module.';
-                return;
-            }
-            Object.entries(result.flags || {}).forEach(([id, flags]) => courseFlags.set(Number(id), flags));
-            renderCourses();
+        };
+        progress();
+        await Promise.all([worker(), worker(), worker()]);
+        if (generation !== flagsGeneration) return;
+        if (stopped === 'launch_url') {
+            els.flagsStatus.textContent = 'Enter the SLO Cloud LTI launch URL below to see which courses already have the app, nav link and module.';
+        } else if (stopped) {
+            els.flagsStatus.textContent = 'Could not check courses: ' + stopped;
+        } else {
+            els.flagsStatus.textContent = 'App, Nav and Module: ✓ already there, ✗ missing, ? another tool on the same domain matched, ! could not check (hover for why).';
         }
-        els.flagsStatus.textContent = 'App, Nav and Module: ✓ already there, ✗ missing, ? another tool on the same domain matched.';
     }
     els.ltiUrl.addEventListener('change', () => { if (courses.length) loadFlags(); });
     els.ltiOwn.addEventListener('change', () => { if (courses.length) loadFlags(); });
@@ -1081,12 +1116,12 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
         const settings = currentSettings();
         if (settings.scope === 'picked' && selected.size === 0) {
             markFieldErrors({ scope_value: 'Choose at least one course.' });
-            setFormError('Choose at least one course in step 2, then run again.');
+            setFormError('Choose at least one course in step 3, then run again.');
             return;
         }
         if (!els.token.value.trim()) {
             markFieldErrors({ canvas_token: 'Enter a Canvas API token.' });
-            setFormError('Enter your Canvas API token in step 1.');
+            setFormError('Enter your Canvas API token in step 2.');
             return;
         }
         if (!dryRun) {

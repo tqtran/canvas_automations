@@ -53,6 +53,9 @@ session_start();
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
+// Marks log lines with the browser session that caused them, so log.php can show a person
+// only their own entries. A hash, so the log never holds a usable session ID.
+$sessionTag = hash('sha256', session_id());
 
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');

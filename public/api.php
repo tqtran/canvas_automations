@@ -16,10 +16,11 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], (string)$_POST['csrf_token'])) {
-    $audit('request_failed', ['action' => (string)($_POST['action'] ?? ''), 'status' => 403, 'reply' => '{"ok":false,"error":"csrf"}']);
-    error_log('canvas_automations: request failed 403 csrf');
+    $reply = json_encode(['ok' => false, 'error' => 'csrf', 'message' => 'Your page expired. Reload it and try again.']);
+    $audit('request_failed', ['session' => $sessionTag, 'action' => (string)($_POST['action'] ?? ''), 'status' => 403, 'reply' => $reply]);
+    error_log('canvas_automations: request failed 403 ' . $reply);
     http_response_code(403);
-    echo json_encode(['ok' => false, 'error' => 'csrf', 'message' => 'Your page expired. Reload it and try again.']);
+    echo $reply;
     exit;
 }
 
@@ -28,7 +29,7 @@ if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], (strin
 $action = (string)($_POST['action'] ?? '');
 // Write every rejected request and its reason to var/audit.log and the PHP error log,
 // because a proxy or IIS may replace the reply before the page can show it.
-$logFailure = static function (int $status, array $body) use ($audit, $action): void {
+$logFailure = static function (int $status, array $body) use ($audit, $action, $sessionTag): void {
     // The raw request (secrets blanked) and the exact reply body, unfiltered.
     $request = $_POST;
     foreach (['canvas_token', 'lti_consumer_secret', 'csrf_token', 'run_key'] as $secret) {
@@ -37,6 +38,7 @@ $logFailure = static function (int $status, array $body) use ($audit, $action): 
         }
     }
     $entry = [
+        'session' => $sessionTag,
         'action' => $action,
         'status' => $status,
         'request' => $request,

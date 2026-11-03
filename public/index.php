@@ -208,7 +208,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                     </div>
                     <p class="form-text" id="cdLtiHelp"><?= $cdServerLti
                         ? 'Not needed if SLO Cloud is already installed in these courses, or to use the settings saved on this server. Tick it to type your own. They are used for this run only and are never saved.'
-                        : 'This server has no LTI settings saved, so installing needs them. They are used for this run only and are never saved. Removing needs only the launch URL.' ?></p>
+                        : 'The launch URL is required. The key and secret are only needed for courses that do not already get SLO Cloud from their account; without them those courses are skipped. They are used for this run only and are never saved.' ?></p>
                     <div id="cdLtiFields" class="<?= $cdServerLti ? 'd-none' : '' ?>">
                     <div class="mb-3">
                         <label for="cdLtiUrl" class="form-label">LTI launch URL</label>
@@ -412,7 +412,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
         module_name: ['cdModuleName', 'cdModuleNameError'], course_delay_ms: ['cdDelay', 'cdDelayError'], scope: ['cdScopeCourse', 'cdScopeError'],
     };
     const labels = {
-        tool: { updated: 'Updated', would_update: 'Would update', removed: 'Removed', would_remove: 'Would remove', absent: 'Not installed', created: 'Created', would_create: 'Would create', present: 'Already present', present_account: 'Present (account level)', skipped: 'Skipped', failed: 'Failed' },
+        tool: { updated: 'Updated', would_update: 'Would update', removed: 'Removed', would_remove: 'Would remove', absent: 'Not installed', created: 'Created', would_create: 'Would create', present: 'Already present', present_account: 'Present (account level)', needs_credentials: 'Needs key and secret', skipped: 'Skipped', failed: 'Failed' },
         module: { removed: 'Link removed', would_remove: 'Would remove link', none: 'None found', created: 'Module created', added: 'Link added', would_create: 'Would create module', would_add: 'Would add link', present: 'Already present', off: 'Not requested', skipped: 'Skipped', failed: 'Failed' },
         status: { ok: 'OK', warning: 'Warning', failed: 'Failed', skipped: 'Skipped' },
         scope: { picked: 'Courses I choose', course: 'Course by Canvas ID', term: 'Term', active: 'All active courses', all: 'All courses, including concluded' },
@@ -468,17 +468,30 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
         return payload;
     }
 
+    // Link to this browser session's raw server log lines (log.php).
+    function addLogLink(element) {
+        const link = document.createElement('a');
+        link.href = config.apiUrl.replace(/api\.php$/, 'log.php');
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.className = 'alert-link';
+        link.textContent = 'View the server log for this error';
+        element.append(' ', link);
+    }
+
     function showAlert(container, kind, text) {
         container.replaceChildren();
         if (!text) return;
         const alert = document.createElement('div');
         alert.className = 'alert alert-' + kind + ' mb-0';
         alert.textContent = text;
+        if (kind === 'danger') addLogLink(alert);
         container.appendChild(alert);
     }
 
     function setFormError(text) {
         els.formError.textContent = text || '';
+        if (text) addLogLink(els.formError);
         els.formError.classList.toggle('d-none', !text);
     }
 
@@ -935,6 +948,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                 }
                 run.paused = true;
                 els.runError.textContent = (error.message || 'The batch failed.') + ' Retry continues from the same place.';
+                addLogLink(els.runError);
                 els.runError.classList.remove('d-none');
                 els.retry.classList.remove('d-none');
                 els.progressBar.classList.add('d-none');

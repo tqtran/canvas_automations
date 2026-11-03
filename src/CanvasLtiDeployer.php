@@ -16,6 +16,7 @@ require_once __DIR__ . '/CanvasClient.php';
 final class CanvasLtiDeployer
 {
     public const BLUEPRINT_NOTE = 'Blueprint child course: deploy to its Blueprint course and let sync apply the change.';
+    public const NEEDS_CREDENTIALS_NOTE = 'SLO Cloud is not in this course or its account. Enter the LTI consumer key and shared secret to install it here.';
 
     private ?\Closure $sisInspector;
 
@@ -219,6 +220,12 @@ final class CanvasLtiDeployer
             $row['notes'][] = 'Tool step failed: ' . $exception->getMessage();
             return $row;
         }
+        if ($row['tool'] === 'needs_credentials') {
+            // No tool to link to, so the module step is skipped too.
+            $row['module'] = empty($this->settings['create_module']) ? 'off' : 'skipped';
+            $row['status'] = 'skipped';
+            return $row;
+        }
 
         if (empty($this->settings['create_module'])) {
             $row['module'] = 'off';
@@ -370,6 +377,10 @@ final class CanvasLtiDeployer
             }
             array_push($notes, ...self::toolWarnings($match, (string)$this->settings['consumer_key']));
             return 'present';
+        }
+        if ((string)($this->settings['consumer_key'] ?? '') === '' || (string)($this->settings['consumer_secret'] ?? '') === '') {
+            $notes[] = self::NEEDS_CREDENTIALS_NOTE;
+            return 'needs_credentials';
         }
         if (!empty($this->settings['dry_run'])) {
             return 'would_create';

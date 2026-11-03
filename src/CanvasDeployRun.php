@@ -452,12 +452,15 @@ final class CanvasDeployRun
         if (!$launchOk) {
             $ltiErrors['lti_launch_url'] = 'Enter the SLO Cloud LTI launch URL, an https address ending in /lti/launch.php.';
         }
-        if ($settings['operation'] === 'deploy') {
+        // The key and secret are only needed to create a tool in a course that has none (a tool
+        // pushed from the account needs nothing), or to rewrite existing tools. Without them,
+        // courses that would need a new tool are skipped and say so.
+        if ($settings['operation'] === 'deploy' && !empty($settings['update_existing'])) {
             if ($effective['consumer_key'] === '') {
-                $ltiErrors['lti_consumer_key'] = 'Enter the LTI consumer key.';
+                $ltiErrors['lti_consumer_key'] = 'Enter the LTI consumer key to update existing tools.';
             }
             if ($effective['consumer_secret'] === '') {
-                $ltiErrors['lti_consumer_secret'] = 'Enter the LTI shared secret.';
+                $ltiErrors['lti_consumer_secret'] = 'Enter the LTI shared secret to update existing tools.';
             }
         }
         if ($ltiErrors !== []) {

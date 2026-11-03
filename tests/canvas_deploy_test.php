@@ -520,7 +520,26 @@ $typedCanvas = new FakeCanvas(FakeCanvas::scenario(), static function (float $se
 $store = [];
 $service = $noLti($store, $typedCanvas);
 $missing = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001']));
-$check($missing['status'] === 422 && array_keys($missing['body']['fields'] ?? []) === ['lti_launch_url', 'lti_consumer_key', 'lti_consumer_secret'], 'Missing LTI settings were not reported field by field.');
+$check($missing['status'] === 422 && array_keys($missing['body']['fields'] ?? []) === ['lti_launch_url'], 'Installing should only require the launch URL.');
+$missingForUpdate = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'update_existing' => '1']));
+$check($missingForUpdate['status'] === 422 && array_keys($missingForUpdate['body']['fields'] ?? []) === ['lti_launch_url', 'lti_consumer_key', 'lti_consumer_secret'], 'Updating existing tools should require the key and secret.');
+
+// Launch URL only: courses that already have the tool are fine, and a course that would
+// need a new tool is skipped with a note instead of failing the run.
+$urlOnlyCanvas = new FakeCanvas(FakeCanvas::scenario(), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
+$urlOnlyStore = [];
+$urlOnly = $noLti($urlOnlyStore, $urlOnlyCanvas);
+$started = $urlOnly->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001,1002,1003', 'create_module' => '1', 'lti_launch_url' => $launch]));
+$check($started['status'] === 200, 'A run with only the launch URL was refused.');
+$batches = [];
+$rows = $runAll($urlOnly, $started['body']['run_id'], $started['body']['run_key'], $batches);
+$urlOnly->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
+$byId = array_column($rows, null, 'course_id');
+$check(($byId[1001]['tool'] ?? '') === 'needs_credentials' && ($byId[1001]['status'] ?? '') === 'skipped' && ($byId[1001]['module'] ?? '') === 'skipped'
+    && in_array(CanvasLtiDeployer::NEEDS_CREDENTIALS_NOTE, $byId[1001]['notes'] ?? [], true), 'A course needing a new tool was not skipped with a note.');
+$check(($urlOnlyCanvas->state['courses'][1001]['tools'] ?? []) === [] && ($urlOnlyCanvas->state['courses'][1001]['modules'] ?? []) === [], 'Something was written to a course that was skipped for missing credentials.');
+$check(($byId[1002]['tool'] ?? '') === 'present' && ($byId[1003]['tool'] ?? '') === 'present', 'Existing tools were not recognized without credentials.');
+$check(!array_filter($byId[1003]['notes'] ?? [], static fn(string $note): bool => str_contains($note, 'different consumer key')), 'A consumer key warning was shown although no key was entered.');
 $removeNeedsUrl = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'operation' => 'remove']));
 $check($removeNeedsUrl['status'] === 422 && array_keys($removeNeedsUrl['body']['fields'] ?? []) === ['lti_launch_url'], 'Removing should only need the launch URL.');
 $started = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'lti_launch_url' => $launch, 'lti_consumer_key' => 'typed-key', 'lti_consumer_secret' => 'typed-secret']));

@@ -64,6 +64,34 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                         </div>
                         <div class="form-text" id="cdOpHelp">Removing deletes the course navigation tool and any module link to it. An emptied, unpublished module with the module name set below is deleted too. A tool installed at the account level is reported, not removed.</div>
                     </fieldset>
+                    <hr>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="cdLtiOwn" <?= $cdServerLti ? '' : 'checked disabled' ?>>
+                        <label class="form-check-label" for="cdLtiOwn">Enter the SLO Cloud LTI settings for this run</label>
+                    </div>
+                    <p class="form-text" id="cdLtiHelp"><?= $cdServerLti
+                        ? 'Not needed if SLO Cloud is already installed in these courses, or to use the settings saved on this server. Tick it to type your own. They are used for this run only and are never saved.'
+                        : 'Installing needs the launch URL, consumer key and shared secret; removing needs only the launch URL. They are used for this run only and are never saved.' ?></p>
+                    <div id="cdLtiFields" class="<?= $cdServerLti ? 'd-none' : '' ?>">
+                    <div class="mb-3">
+                        <label for="cdLtiUrl" class="form-label">LTI launch URL</label>
+                        <input type="url" class="form-control" id="cdLtiUrl" name="lti_launch_url" autocomplete="off" spellcheck="false"
+                            placeholder="https://cloud.coastline.edu/SLO" aria-describedby="cdLtiUrlError">
+                        <div id="cdLtiUrlError" class="invalid-feedback"></div>
+                    </div>
+                    <div class="row g-3" id="cdLtiKeyRow">
+                        <div class="col-md-6">
+                            <label for="cdLtiKey" class="form-label">Consumer key</label>
+                            <input type="text" class="form-control" id="cdLtiKey" name="lti_consumer_key" autocomplete="off" spellcheck="false" aria-describedby="cdLtiKeyError">
+                            <div id="cdLtiKeyError" class="invalid-feedback"></div>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="cdLtiSecret" class="form-label">Shared secret</label>
+                            <input type="password" class="form-control" id="cdLtiSecret" name="lti_consumer_secret" autocomplete="off" spellcheck="false" aria-describedby="cdLtiSecretError">
+                            <div id="cdLtiSecretError" class="invalid-feedback"></div>
+                        </div>
+                    </div>
+                    </div>
                 </div>
             </div>
             <div class="card mb-4">
@@ -226,34 +254,6 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                             value="<?= $h($cdDefaults['course_delay_ms']) ?>" required aria-describedby="cdDelayHelp cdDelayError">
                         <div id="cdDelayHelp" class="form-text">A pause between courses (0 to 10,000) to go easy on Canvas during busy hours.</div>
                         <div id="cdDelayError" class="invalid-feedback"></div>
-                    </div>
-                    <hr>
-                    <div class="form-check mb-2">
-                        <input class="form-check-input" type="checkbox" id="cdLtiOwn" <?= $cdServerLti ? '' : 'checked disabled' ?>>
-                        <label class="form-check-label" for="cdLtiOwn">Enter the SLO Cloud LTI settings for this run</label>
-                    </div>
-                    <p class="form-text" id="cdLtiHelp"><?= $cdServerLti
-                        ? 'Not needed if SLO Cloud is already installed in these courses, or to use the settings saved on this server. Tick it to type your own. They are used for this run only and are never saved.'
-                        : 'Installing needs the launch URL, consumer key and shared secret; removing needs only the launch URL. They are used for this run only and are never saved.' ?></p>
-                    <div id="cdLtiFields" class="<?= $cdServerLti ? 'd-none' : '' ?>">
-                    <div class="mb-3">
-                        <label for="cdLtiUrl" class="form-label">LTI launch URL</label>
-                        <input type="url" class="form-control" id="cdLtiUrl" name="lti_launch_url" autocomplete="off" spellcheck="false"
-                            placeholder="https://cloud.coastline.edu/SLO" aria-describedby="cdLtiUrlError">
-                        <div id="cdLtiUrlError" class="invalid-feedback"></div>
-                    </div>
-                    <div class="row g-3" id="cdLtiKeyRow">
-                        <div class="col-md-6">
-                            <label for="cdLtiKey" class="form-label">Consumer key</label>
-                            <input type="text" class="form-control" id="cdLtiKey" name="lti_consumer_key" autocomplete="off" spellcheck="false" aria-describedby="cdLtiKeyError">
-                            <div id="cdLtiKeyError" class="invalid-feedback"></div>
-                        </div>
-                        <div class="col-md-6">
-                            <label for="cdLtiSecret" class="form-label">Shared secret</label>
-                            <input type="password" class="form-control" id="cdLtiSecret" name="lti_consumer_secret" autocomplete="off" spellcheck="false" aria-describedby="cdLtiSecretError">
-                            <div id="cdLtiSecretError" class="invalid-feedback"></div>
-                        </div>
-                    </div>
                     </div>
                 </div>
             </div>
@@ -820,7 +820,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
         await Promise.all([worker(), worker(), worker()]);
         if (generation !== flagsGeneration) return;
         if (stopped === 'launch_url') {
-            els.flagsStatus.textContent = 'Enter the SLO Cloud LTI launch URL below to see which courses already have the app, nav link and module.';
+            els.flagsStatus.textContent = 'Enter the SLO Cloud LTI launch URL in step 1 to see which courses already have the app, nav link and module.';
         } else if (stopped) {
             els.flagsStatus.textContent = 'Could not check courses: ' + stopped;
         } else {

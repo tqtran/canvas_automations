@@ -445,12 +445,16 @@ final class CanvasLtiDeployer
         $created = false;
         if ($named === null) {
             // Canvas creates modules unpublished, so students never see them.
-            $named = $this->client->post("/api/v1/courses/{$courseId}/modules", ['module' => ['name' => $moduleName]]);
+            // Position 1 puts it at the top of the course's modules.
+            $named = $this->client->post("/api/v1/courses/{$courseId}/modules", ['module' => ['name' => $moduleName, 'position' => 1]]);
             $created = true;
         }
         $moduleId = (int)(is_array($named) ? ($named['id'] ?? 0) : 0);
         if ($moduleId <= 0) {
             throw new CanvasApiException('Canvas did not return the module that was created.', 0, 'response');
+        }
+        if (!$created) {
+            $this->client->put("/api/v1/courses/{$courseId}/modules/{$moduleId}", ['module' => ['position' => 1]]);
         }
         $this->client->post("/api/v1/courses/{$courseId}/modules/{$moduleId}/items", [
             'module_item' => [

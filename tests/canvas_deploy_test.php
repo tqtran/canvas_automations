@@ -541,6 +541,20 @@ $check(($urlOnlyCanvas->state['courses'][1001]['tools'] ?? []) === [] && ($urlOn
 $check(($byId[1002]['tool'] ?? '') === 'present' && ($byId[1003]['tool'] ?? '') === 'present', 'Existing tools were not recognized without credentials.');
 $check(!array_filter($byId[1003]['notes'] ?? [], static fn(string $note): bool => str_contains($note, 'different consumer key')), 'A consumer key warning was shown although no key was entered.');
 
+// The added module goes to the top: a new one is created first, an existing one is moved up.
+$topCanvas = new FakeCanvas(FakeCanvas::scenario(), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
+$topCanvas->state['courses'][1001]['modules'] = [['id' => 601, 'name' => 'Week 1', 'published' => true, 'items' => []]];
+array_unshift($topCanvas->state['courses'][1010]['modules'], ['id' => 602, 'name' => 'Week 1', 'published' => true, 'items' => []]);
+$topStore = [];
+$top = $noLti($topStore, $topCanvas);
+$started = $top->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001,1010', 'create_module' => '1', 'lti_launch_url' => $launch, 'lti_consumer_key' => 'k', 'lti_consumer_secret' => 's']));
+$batches = [];
+$runAll($top, $started['body']['run_id'], $started['body']['run_key'], $batches);
+$top->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
+$firstModule = static fn(int $id): string => (string)($topCanvas->state['courses'][$id]['modules'][0]['name'] ?? '');
+$check($firstModule(1001) === 'SLO Cloud' && count($topCanvas->state['courses'][1001]['modules']) === 2, 'A new SLO Cloud module was not created at the top.');
+$check($firstModule(1010) === 'SLO Cloud' && count($topCanvas->state['courses'][1010]['modules']) === 2, 'An existing SLO Cloud module was not moved to the top.');
+
 // A site address instead of the launch URL is refused.
 $siteUrl = $urlOnly->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'lti_launch_url' => 'https://slo.example.edu/SLO']));
 $check($siteUrl['status'] === 422 && array_keys($siteUrl['body']['fields'] ?? []) === ['lti_launch_url'], 'A launch URL not ending in /lti/launch.php was accepted.');

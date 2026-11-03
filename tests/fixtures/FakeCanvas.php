@@ -156,8 +156,26 @@ final class FakeCanvas
             'GET /api/v1/courses/:id/modules' => $this->course($path, static fn(array $course): array => self::json(200, $course['modules'])),
             'POST /api/v1/courses/:id/modules' => $this->course($path, function (array $course) use ($form): array {
                 $module = ['id' => $this->state['next_id']++, 'name' => (string)$form['module']['name'], 'published' => false, 'items' => []];
-                $this->state['courses'][$course['id']]['modules'][] = $module;
+                if ((int)($form['module']['position'] ?? 0) === 1) {
+                    array_unshift($this->state['courses'][$course['id']]['modules'], $module);
+                } else {
+                    $this->state['courses'][$course['id']]['modules'][] = $module;
+                }
                 return self::json(200, $module);
+            }),
+            'PUT /api/v1/courses/:id/modules/:id' => $this->course($path, function (array $course) use ($form, $path): array {
+                preg_match('#/modules/(\d+)#', $path, $m);
+                $modules = &$this->state['courses'][$course['id']]['modules'];
+                foreach ($modules as $index => $module) {
+                    if ($module['id'] === (int)$m[1]) {
+                        if ((int)($form['module']['position'] ?? 0) === 1) {
+                            array_splice($modules, $index, 1);
+                            array_unshift($modules, $module);
+                        }
+                        return self::json(200, $module);
+                    }
+                }
+                return self::json(404, ['errors' => [['message' => 'not found']]]);
             }),
             'POST /api/v1/courses/:id/modules/:id/items' => $this->course($path, function (array $course) use ($form, $path): array {
                 preg_match('#/modules/(\d+)/items#', $path, $moduleMatch);

@@ -412,7 +412,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
         module_name: ['cdModuleName', 'cdModuleNameError'], course_delay_ms: ['cdDelay', 'cdDelayError'], scope: ['cdScopeCourse', 'cdScopeError'],
     };
     const labels = {
-        tool: { updated: 'Updated', would_update: 'Would update', removed: 'Removed', would_remove: 'Would remove', absent: 'Not installed', created: 'Created', would_create: 'Would create', present: 'Already present', present_account: 'Present (account level)', needs_credentials: 'Needs key and secret', doubtful: 'Other tool matched, nothing added', skipped: 'Skipped', failed: 'Failed' },
+        tool: { updated: 'Updated', would_update: 'Would update', removed: 'Removed', would_remove: 'Would remove', absent: 'Not installed', created: 'Created', would_create: 'Would create', present: 'Already present', present_account: 'Present (account level)', needs_credentials: 'Needs key and secret', doubtful: 'Other tool matched, nothing added', nav_added: 'Nav link added', would_add_nav: 'Would add nav link', no_nav_account: 'Account tool has no nav link', skipped: 'Skipped', failed: 'Failed' },
         module: { removed: 'Link removed', would_remove: 'Would remove link', none: 'None found', created: 'Module created', added: 'Link added', would_create: 'Would create module', would_add: 'Would add link', present: 'Already present', off: 'Not requested', skipped: 'Skipped', failed: 'Failed' },
         status: { ok: 'OK', warning: 'Warning', failed: 'Failed', skipped: 'Skipped' },
         scope: { picked: 'Courses I choose', course: 'Course by Canvas ID', term: 'Term', active: 'All active courses', all: 'All courses, including concluded' },

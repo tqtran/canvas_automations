@@ -571,12 +571,28 @@ $rows = $runAll($noNav, $started['body']['run_id'], $started['body']['run_key'],
 $noNav->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
 $byId = array_column($rows, null, 'course_id');
 $hasNote = static fn(array $row, string $text): bool => (bool)array_filter($row['notes'] ?? [], static fn(string $note): bool => str_contains($note, $text));
-$check(($byId[1002]['tool'] ?? '') === 'doubtful' && ($byId[1002]['status'] ?? '') === 'skipped' && ($byId[1002]['module'] ?? '') === 'skipped'
-    && $hasNote($byId[1002], 'no Course Navigation link') && $hasNote($byId[1002], 'id 801'), 'A matched tool without a nav link was not reported and skipped.');
+$navTool = $noNavCanvas->state['courses'][1002]['tools'][0];
+$check(($byId[1002]['tool'] ?? '') === 'nav_added' && ($byId[1002]['module'] ?? '') === 'created'
+    && ($byId[1002]['status'] ?? '') === 'ok'
+    && ($navTool['course_navigation']['text'] ?? '') !== '' && empty($navTool['shared_secret_set']),
+    'A course tool without a nav link did not get one (without touching its secret).');
 $check(($byId[1001]['tool'] ?? '') === 'doubtful' && ($byId[1001]['status'] ?? '') === 'skipped'
     && $hasNote($byId[1001], 'only by its domain') && $hasNote($byId[1001], 'Coastline Portal'), 'A domain-only match was not reported and skipped.');
-$check(count($noNavCanvas->state['courses'][1001]['tools']) === 1 && $noNavCanvas->state['courses'][1001]['modules'] === []
-    && $noNavCanvas->state['courses'][1002]['modules'] === [], 'Something was added to a course with a doubtful match.');
+$check(count($noNavCanvas->state['courses'][1001]['tools']) === 1 && $noNavCanvas->state['courses'][1001]['modules'] === [],
+    'Something was added to a course with a doubtful match.');
+
+// An account tool without a nav link cannot be fixed from a course: reported, nothing added.
+$accountNoNav = new FakeCanvas(FakeCanvas::scenario(['account_tool' => true]), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
+$accountNoNav->state['account_tools'][0]['course_navigation'] = null;
+$accountNoNavStore = [];
+$accountNoNavService = $noLti($accountNoNavStore, $accountNoNav);
+$started = $accountNoNavService->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'create_module' => '1', 'lti_launch_url' => $launch]));
+$check($started['status'] === 200 && ($started['body']['account_tool'] ?? true) === false, 'An account tool without a nav link was trusted for every course.');
+$batches = [];
+$rows = $runAll($accountNoNavService, $started['body']['run_id'], $started['body']['run_key'], $batches);
+$accountNoNavService->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
+$check(($rows[0]['tool'] ?? '') === 'no_nav_account' && ($rows[0]['status'] ?? '') === 'skipped' && $hasNote($rows[0], 'Admin > Settings > Apps')
+    && $accountNoNav->state['courses'][1001]['tools'] === [] && $accountNoNav->state['courses'][1001]['modules'] === [], 'An account tool without a nav link was not reported, or something was added.');
 $removeNeedsUrl = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'operation' => 'remove']));
 $check($removeNeedsUrl['status'] === 422 && array_keys($removeNeedsUrl['body']['fields'] ?? []) === ['lti_launch_url'], 'Removing should only need the launch URL.');
 $started = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'lti_launch_url' => $launch, 'lti_consumer_key' => 'typed-key', 'lti_consumer_secret' => 'typed-secret']));

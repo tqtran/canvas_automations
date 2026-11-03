@@ -95,22 +95,35 @@ final class CanvasLtiDeployer
         return $foreign;
     }
 
+    /** "NAME" (id N, URL or domain), for notes. */
+    public static function describeTool(array $tool): string
+    {
+        return '"' . (string)($tool['name'] ?? '') . '" (id ' . (int)($tool['id'] ?? 0) . ', '
+            . ((string)($tool['url'] ?? '') !== '' ? (string)$tool['url'] : 'domain ' . (string)($tool['domain'] ?? '')) . ')';
+    }
+
     /**
-     * Why a matched tool cannot be trusted as SLO Cloud, or null when it can: matched only by
-     * domain (it may be another app on the same server), or no Course Navigation link
-     * (Canvas sends course_navigation as null then).
+     * Why a matched tool cannot be trusted as SLO Cloud, or null when it can: matched only
+     * by domain, so it may be another app on the same server.
      */
     public static function doubtfulMatch(array $tool): ?string
     {
-        $describe = '"' . (string)($tool['name'] ?? '') . '" (id ' . (int)($tool['id'] ?? 0) . ', '
-            . ((string)($tool['url'] ?? '') !== '' ? (string)$tool['url'] : 'domain ' . (string)($tool['domain'] ?? '')) . ')';
         if (self::normalizeUrl($tool['url'] ?? null) === null) {
-            return 'Matched tool ' . $describe . ' only by its domain, so it may not be SLO Cloud. Nothing was added; check it in Canvas.';
-        }
-        if (array_key_exists('course_navigation', $tool) && empty($tool['course_navigation'])) {
-            return 'Matched tool ' . $describe . ', but it has no Course Navigation link. Nothing was added; fix or remove that tool in Canvas.';
+            return 'Matched tool ' . self::describeTool($tool) . ' only by its domain, so it may not be SLO Cloud. Nothing was added; check it in Canvas.';
         }
         return null;
+    }
+
+    /** Canvas sends course_navigation as null when the tool has no nav placement. */
+    public static function lacksNav(array $tool): bool
+    {
+        return array_key_exists('course_navigation', $tool) && empty($tool['course_navigation']);
+    }
+
+    /** The Course Navigation placement this tool installs: visible to teachers and admins. */
+    public static function navPlacement(string $linkName): array
+    {
+        return ['enabled' => 'true', 'visibility' => 'admins', 'default' => 'enabled', 'text' => $linkName];
     }
 
     /** Warnings about an existing SLO Cloud tool that is left alone. */
@@ -137,12 +150,7 @@ final class CanvasLtiDeployer
             'consumer_key' => (string)$settings['consumer_key'],
             'shared_secret' => (string)$settings['consumer_secret'],
             'url' => (string)$settings['launch_url'],
-            'course_navigation' => [
-                'enabled' => 'true',
-                'visibility' => 'admins',
-                'default' => 'enabled',
-                'text' => (string)$settings['link_name'],
-            ],
+            'course_navigation' => self::navPlacement((string)$settings['link_name']),
         ];
     }
 
@@ -238,7 +246,7 @@ final class CanvasLtiDeployer
             $row['notes'][] = 'Tool step failed: ' . $exception->getMessage();
             return $row;
         }
-        if ($row['tool'] === 'needs_credentials' || $row['tool'] === 'doubtful') {
+        if (in_array($row['tool'], ['needs_credentials', 'doubtful', 'no_nav_account'], true)) {
             // No trustworthy tool to link to, so nothing is added to the course.
             $row['module'] = empty($this->settings['create_module']) ? 'off' : 'skipped';
             $row['status'] = 'skipped';
@@ -378,6 +386,27 @@ final class CanvasLtiDeployer
         if ($match !== null && ($doubt = self::doubtfulMatch($match)) !== null) {
             $notes[] = $doubt;
             return 'doubtful';
+        }
+        if ($match !== null && self::lacksNav($match)) {
+            // SLO Cloud is there but has no nav link. A tool that belongs to this course can get
+            // one (no key or secret needed); one from the account cannot be changed from here.
+            $own = $this->client->getAll("/api/v1/courses/{$courseId}/external_tools");
+            $ownMatch = self::findMatchingTool($own, $launchUrl);
+            if ($ownMatch === null) {
+                $notes[] = 'SLO Cloud ' . self::describeTool($match) . ' comes from the account and has no Course Navigation link.'
+                    . ' Nothing was added; add the link in Canvas under Admin > Settings > Apps.';
+                return 'no_nav_account';
+            }
+            if (self::lacksNav($ownMatch)) {
+                if (!empty($this->settings['dry_run'])) {
+                    return 'would_add_nav';
+                }
+                $this->client->put("/api/v1/courses/{$courseId}/external_tools/" . (int)$ownMatch['id'], [
+                    'course_navigation' => self::navPlacement((string)$this->settings['link_name']),
+                ]);
+                return 'nav_added';
+            }
+            $match = $ownMatch;
         }
         if ($match !== null) {
             if (!empty($this->settings['update_existing'])) {

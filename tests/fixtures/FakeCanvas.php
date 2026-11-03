@@ -193,7 +193,12 @@ final class FakeCanvas
                 foreach ($this->state['courses'][$course['id']]['tools'] as &$tool) {
                     if ($tool['id'] === (int)$toolMatch[1]) {
                         $tool['consumer_key'] = (string)($form['consumer_key'] ?? $tool['consumer_key']);
-                        $tool['shared_secret_set'] = ($form['shared_secret'] ?? '') !== '';
+                        if (array_key_exists('shared_secret', $form)) {
+                            $tool['shared_secret_set'] = $form['shared_secret'] !== '';
+                        }
+                        if (array_key_exists('course_navigation', $form)) {
+                            $tool['course_navigation'] = $form['course_navigation'];
+                        }
                         return self::json(200, $tool);
                     }
                 }

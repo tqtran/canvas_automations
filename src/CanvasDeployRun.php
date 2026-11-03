@@ -489,10 +489,11 @@ final class CanvasDeployRun
                 $accountTool = false;
                 continue;
             }
-            if (($doubt = CanvasLtiDeployer::doubtfulMatch($match)) !== null) {
-                // Not trusted, so each course is checked and reported on its own.
+            if (($doubt = CanvasLtiDeployer::doubtfulMatch($match)) !== null || CanvasLtiDeployer::lacksNav($match)) {
+                // Each course is then checked and reported on its own.
                 $accountTool = false;
-                $notes[] = 'Account "' . (string)($account['name'] ?? $account['id']) . '": ' . $doubt;
+                $notes[] = 'Account "' . (string)($account['name'] ?? $account['id']) . '": '
+                    . ($doubt ?? 'SLO Cloud ' . CanvasLtiDeployer::describeTool($match) . ' has no Course Navigation link; each course is checked on its own.');
                 continue;
             }
             foreach (CanvasLtiDeployer::toolWarnings($match, $effective['consumer_key']) as $warning) {
@@ -684,8 +685,8 @@ final class CanvasDeployRun
             'would_create' => $counts['tool_would_create']++,
             'present', 'present_account' => $counts['tool_present']++,
             'removed' => $counts['tool_removed']++,
-            'updated' => $counts['tool_updated']++,
-            'would_update' => $counts['tool_would_update']++,
+            'updated', 'nav_added' => $counts['tool_updated']++,
+            'would_update', 'would_add_nav' => $counts['tool_would_update']++,
             'would_remove' => $counts['tool_would_remove']++,
             'absent' => $counts['tool_absent']++,
             default => null,

@@ -188,7 +188,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                         <div id="cdLinkNameError" class="invalid-feedback"></div>
                     </div>
                     <div class="form-check mb-2">
-                        <input class="form-check-input" type="checkbox" id="cdCreateNav" name="create_nav">
+                        <input class="form-check-input" type="checkbox" id="cdCreateNav" name="create_nav" checked>
                         <label class="form-check-label" for="cdCreateNav">Add a Course Navigation link to SLO Cloud</label>
                         <div class="form-text">Where SLO Cloud comes from the account without a nav link, a course copy of the tool carries it. Courses that already have the nav link are left alone.</div>
                     </div>
@@ -437,6 +437,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
     const MAX_TABLE_ROWS = 2000;
     config.defaults.operation = 'deploy';
     config.defaults.update_existing = false;
+    config.defaults.create_nav = true;
     const operation = () => (els.opRemove.checked ? 'remove' : 'deploy');
     let terms = [];
     let run = null;

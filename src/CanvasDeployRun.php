@@ -62,7 +62,7 @@ final class CanvasDeployRun
     public const DEFAULTS = [
         'base_url' => '',
         'link_name' => 'SLO Cloud Reporting',
-        'create_module' => false,
+        'create_module' => true,
         'module_name' => 'SLO Cloud',
         'course_delay_ms' => 250,
         'scope' => 'active',

@@ -159,6 +159,12 @@ final class FakeCanvas
                 return self::json(200, $tools);
             }),
             'POST /api/v1/courses/:id/external_tools' => $this->course($path, function (array $course) use ($form): array {
+                if (!empty($this->state['reject_blank_secret']) && ($form['shared_secret'] ?? '') === '') {
+                    return self::json(400, ['errors' => [['message' => 'shared_secret is required']]]);
+                }
+                if (!empty($this->state['reject_placeholder_secret']) && ($form['shared_secret'] ?? '') === 'fake') {
+                    return self::json(400, ['errors' => [['message' => 'placeholder secret refused']]]);
+                }
                 $tool = self::tool($this->state['next_id']++, (string)$form['name'], (string)$form['url'], (string)$form['consumer_key'], (string)$form['privacy_level']);
                 $tool['course_navigation'] = $form['course_navigation'] ?? null;
                 $tool['shared_secret_set'] = ($form['shared_secret'] ?? '') !== '';

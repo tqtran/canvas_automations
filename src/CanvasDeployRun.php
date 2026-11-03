@@ -769,7 +769,7 @@ final class CanvasDeployRun
         $counts += array_fill_keys(['nav_added', 'nav_would_add', 'nav_present', 'nav_not_added'], 0);
         match ($row['nav'] ?? '') {
             'added' => $counts['nav_added']++,
-            'would_add' => $counts['nav_would_add']++,
+            'would_add', 'would_try' => $counts['nav_would_add']++,
             'present' => $counts['nav_present']++,
             'not_added' => $counts['nav_not_added']++,
             default => null,

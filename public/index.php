@@ -424,7 +424,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
     };
     const labels = {
         tool: { updated: 'Updated', would_update: 'Would update', removed: 'Removed', would_remove: 'Would remove', absent: 'Not installed', created: 'Created', would_create: 'Would create', present: 'Already present', present_account: 'Present (account level)', needs_credentials: 'Needs key and secret', doubtful: 'Other tool matched, nothing added', created_for_nav: 'Created (for nav link)', would_create_for_nav: 'Would create (for nav link)', skipped: 'Skipped', failed: 'Failed' },
-        nav: { present: 'Already present', added: 'Added', would_add: 'Would add', not_added: 'Not added (needs key and secret)', skipped: 'Skipped' },
+        nav: { present: 'Already present', added: 'Added', would_add: 'Would add', not_added: 'Not added (see notes)', would_try: 'Would try (no secret)', skipped: 'Skipped' },
         module: { removed: 'Link removed', would_remove: 'Would remove link', none: 'None found', created: 'Module created', added: 'Link added', would_create: 'Would create module', would_add: 'Would add link', present: 'Already present', off: 'Not requested', skipped: 'Skipped', failed: 'Failed' },
         status: { ok: 'OK', warning: 'Warning', failed: 'Failed', skipped: 'Skipped' },
         scope: { picked: 'Courses I choose', course: 'Course by Canvas ID', term: 'Term', active: 'All active courses', all: 'All courses, including concluded' },

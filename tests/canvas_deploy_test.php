@@ -582,20 +582,41 @@ $check(($byId[1001]['tool'] ?? '') === 'doubtful' && ($byId[1001]['status'] ?? '
 $check(count($noNavCanvas->state['courses'][1001]['tools']) === 1 && $noNavCanvas->state['courses'][1001]['modules'] === [],
     'Something was added to a course with a doubtful match.');
 
-// An account tool without a nav link: the tool exists, so the module link is added; the nav
-// link needs a course tool, so without a key and secret it is reported.
-$accountNoNav = new FakeCanvas(FakeCanvas::scenario(['account_tool' => true]), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
-$accountNoNav->state['account_tools'][0]['course_navigation'] = null;
-$accountNoNavStore = [];
-$accountNoNavService = $noLti($accountNoNavStore, $accountNoNav);
-$started = $accountNoNavService->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'create_module' => '1', 'lti_launch_url' => $launch]));
-$check($started['status'] === 200 && ($started['body']['account_tool'] ?? true) === false, 'An account tool without a nav link was trusted for every course.');
-$batches = [];
-$rows = $runAll($accountNoNavService, $started['body']['run_id'], $started['body']['run_key'], $batches);
-$accountNoNavService->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
-$check(($rows[0]['tool'] ?? '') === 'present_account' && ($rows[0]['nav'] ?? '') === 'not_added' && ($rows[0]['status'] ?? '') === 'ok' && ($rows[0]['module'] ?? '') === 'created'
-    && $accountNoNav->state['courses'][1001]['tools'] === [],
-    'Account tool without a nav link and no credentials: should be OK, nav "not added", module added.');
+// An account tool without a nav link and no key or secret: the module link is added (the tool
+// exists), and a course copy with an empty secret is tried for the nav link. Three outcomes:
+// Canvas accepts, Canvas refuses, dry run.
+$accountNoNavRun = static function (bool $reject, bool $dry, bool $rejectPlaceholder = false) use ($clock, $noLti, $settings, $launch, $runAll): array {
+    $canvas = new FakeCanvas(FakeCanvas::scenario(['account_tool' => true]), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
+    $canvas->state['account_tools'][0]['course_navigation'] = null;
+    $canvas->state['reject_blank_secret'] = $reject;
+    $canvas->state['reject_placeholder_secret'] = $rejectPlaceholder;
+    $store = [];
+    $service = $noLti($store, $canvas);
+    $started = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'create_module' => '1', 'lti_launch_url' => $launch, 'dry_run' => $dry ? '1' : '0']));
+    $batches = [];
+    $rows = $runAll($service, $started['body']['run_id'], $started['body']['run_key'], $batches);
+    $service->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
+    return [$rows[0] ?? [], $canvas, $started];
+};
+[$row, $canvasAfter, $started] = $accountNoNavRun(false, false);
+$check(($started['body']['account_tool'] ?? true) === false, 'An account tool without a nav link was trusted for every course.');
+$copy = $canvasAfter->state['courses'][1001]['tools'][0] ?? [];
+$check(($row['tool'] ?? '') === 'created_for_nav' && ($row['nav'] ?? '') === 'added' && ($row['status'] ?? '') === 'warning' && ($row['module'] ?? '') === 'created'
+    && $hasNote($row, 'empty shared secret') && !empty($copy['course_navigation']) && empty($copy['shared_secret_set'])
+    && ($copy['consumer_key'] ?? '') === FakeCanvas::CONSUMER_KEY,
+    'No key or secret, Canvas accepts: the nav copy was not added with the account key and an empty secret, or not flagged.');
+[$row, $canvasAfter] = $accountNoNavRun(true, false);
+$copy = $canvasAfter->state['courses'][1001]['tools'][0] ?? [];
+$check(($row['tool'] ?? '') === 'created_for_nav' && ($row['nav'] ?? '') === 'added' && $hasNote($row, 'placeholder secret "fake"')
+    && $hasNote($row, 'shared_secret is required') && !empty($copy['shared_secret_set']) && count($canvasAfter->state['courses'][1001]['tools']) === 1,
+    'Empty secret refused: the "fake" placeholder retry did not add the nav copy, or not reported.');
+[$row, $canvasAfter] = $accountNoNavRun(true, false, true);
+$check(($row['tool'] ?? '') === 'present_account' && ($row['nav'] ?? '') === 'not_added' && ($row['status'] ?? '') === 'warning' && ($row['module'] ?? '') === 'created'
+    && $hasNote($row, 'shared_secret is required') && $hasNote($row, 'placeholder secret refused') && $canvasAfter->state['courses'][1001]['tools'] === [],
+    'Both attempts refused: the refusals were not reported, or the module step did not run.');
+[$row, $canvasAfter] = $accountNoNavRun(false, true);
+$check(($row['tool'] ?? '') === 'would_create_for_nav' && ($row['nav'] ?? '') === 'would_try' && $canvasAfter->state['courses'][1001]['tools'] === [],
+    'No key or secret, dry run: should say it would try, and change nothing.');
 
 // Same, with a key and secret: a course tool with the nav link is added.
 $accountNoNav2 = new FakeCanvas(FakeCanvas::scenario(['account_tool' => true]), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });

@@ -456,7 +456,37 @@ final class CanvasLtiDeployer
                     $nav = !empty($this->settings['dry_run']) ? 'would_add' : 'added';
                     return 'present_account';
                 }
-                // The usual setup: the account tool works; the nav link just isn't added here.
+                // No key or secret: try a course copy anyway with the account tool's consumer key
+                // and no secret, and report exactly what Canvas does.
+                if (!empty($this->settings['dry_run'])) {
+                    $nav = 'would_try';
+                    return 'would_create_for_nav';
+                }
+                // First an empty secret; if Canvas refuses, a placeholder ("fake"), as people do in
+                // Canvas's own form for tools that need no credentials.
+                $accountKey = (string)($match['consumer_key'] ?? '');
+                $attempts = [
+                    'an empty shared secret' => ['consumer_key' => $accountKey, 'consumer_secret' => ''],
+                    'the placeholder secret "fake"' => ['consumer_key' => $accountKey !== '' ? $accountKey : 'fake', 'consumer_secret' => 'fake'],
+                ];
+                $refusals = [];
+                foreach ($attempts as $label => $credentials) {
+                    try {
+                        $this->client->post("/api/v1/courses/{$courseId}/external_tools", self::toolPayload($credentials + $this->settings));
+                    } catch (CanvasDeadlineExceeded $exception) {
+                        throw $exception;
+                    } catch (CanvasApiException $exception) {
+                        $refusals[] = 'with ' . $label . ': ' . $exception->getMessage();
+                        continue;
+                    }
+                    $notes[] = 'Nav link added with a course copy of the tool using ' . $label
+                        . ($refusals !== [] ? ' (Canvas refused ' . implode('; ', $refusals) . ')' : '')
+                        . '. Open SLO Cloud from the course nav to check it launches; if it fails, rerun with the key and secret and "Update existing tools" ticked.';
+                    $nav = 'added';
+                    return 'created_for_nav';
+                }
+                $notes[] = 'Tried to add the nav link with a course copy of the tool; Canvas refused ' . implode('; ', $refusals)
+                    . '. Tick "Add the nav link to the account\'s SLO Cloud tool", or enter the key and secret.';
                 $nav = 'not_added';
                 return 'present_account';
             }

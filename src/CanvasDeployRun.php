@@ -82,7 +82,7 @@ final class CanvasDeployRun
         'processed', 'tool_created', 'tool_would_create', 'tool_present', 'module_created', 'module_added',
         'module_would_add', 'module_present', 'warnings', 'failed', 'skipped', 'out_of_scope',
         'tool_removed', 'tool_would_remove', 'tool_absent', 'module_removed', 'module_would_remove',
-        'tool_updated', 'tool_would_update', 'nav_added', 'nav_would_add', 'nav_present', 'nav_missing',
+        'tool_updated', 'tool_would_update', 'nav_added', 'nav_would_add', 'nav_present', 'nav_not_added',
     ];
 
     private array $store;
@@ -258,6 +258,8 @@ final class CanvasDeployRun
         $settings['operation'] = ($input['operation'] ?? 'deploy') === 'remove' ? 'remove' : 'deploy';
         $settings['update_existing'] = $settings['operation'] === 'deploy'
             && filter_var($input['update_existing'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $settings['fix_account_nav'] = $settings['operation'] === 'deploy'
+            && filter_var($input['fix_account_nav'] ?? false, FILTER_VALIDATE_BOOLEAN);
         return ['settings' => $settings, 'errors' => $errors];
     }
 
@@ -293,6 +295,13 @@ final class CanvasDeployRun
                     return self::ok($this->terms((string)($input['base_url'] ?? ''), (string)($input['canvas_token'] ?? '')));
                 case 'courses':
                     return self::ok($this->courses((string)($input['base_url'] ?? ''), (string)($input['canvas_token'] ?? '')));
+                case 'course_flags':
+                    return self::ok($this->courseFlags(
+                        (string)($input['base_url'] ?? ''),
+                        (string)($input['canvas_token'] ?? ''),
+                        (string)($input['lti_launch_url'] ?? ''),
+                        (string)($input['course_ids'] ?? '')
+                    ));
                 case 'save_defaults':
                     $settings = self::requireValid($input);
                     if ($saveDefaults === null) {
@@ -346,6 +355,40 @@ final class CanvasDeployRun
             ),
             'transport' => CanvasClient::availableTransport(),
         ];
+    }
+
+    /** Most courses checked per course_flags call, to stay well inside the request time. */
+    public const FLAGS_PER_CALL = 10;
+
+    /**
+     * App / nav / module flags for up to FLAGS_PER_CALL courses, read-only. The launch URL
+     * falls back to the one saved on the server.
+     */
+    public function courseFlags(string $baseUrl, string $token, string $launchUrl, string $courseIds): array
+    {
+        $launchUrl = trim($launchUrl) !== '' ? trim($launchUrl) : trim((string)($this->lti['launch_url'] ?? ''));
+        if ($launchUrl === '') {
+            return ['flags' => [], 'launch_url_known' => false];
+        }
+        $ids = array_slice(array_values(array_unique(array_filter(
+            array_map('intval', preg_split('/[\s,]+/', $courseIds, -1, PREG_SPLIT_NO_EMPTY) ?: []),
+            static fn(int $id): bool => $id > 0
+        ))), 0, self::FLAGS_PER_CALL);
+        $client = $this->client($baseUrl, $token, $this->now() + self::HARD_DEADLINE);
+        $flags = [];
+        foreach ($ids as $id) {
+            try {
+                $flags[(string)$id] = CanvasLtiDeployer::inspectCourse($client, $id, $launchUrl);
+            } catch (CanvasDeadlineExceeded) {
+                break;
+            } catch (CanvasApiException $exception) {
+                if ($exception->status() === 401) {
+                    throw $exception;
+                }
+                $flags[(string)$id] = ['app' => 'error', 'nav' => 'error', 'module' => 'error', 'tool' => $exception->getMessage()];
+            }
+        }
+        return ['flags' => $flags, 'launch_url_known' => true];
     }
 
     /**
@@ -481,6 +524,35 @@ final class CanvasDeployRun
         }
 
         $notes = [];
+        // Opt-in: give the account's own SLO Cloud tool a Course Navigation link, so every
+        // course under it shows SLO Cloud. Needs no key or secret.
+        $accountNavFixed = false;
+        if (!empty($settings['fix_account_nav']) && $settings['operation'] === 'deploy') {
+            if ($accounts === []) {
+                $notes[] = 'Adding the nav link to the account tool needs an account admin token; skipped.';
+            }
+            foreach ($accounts as $account) {
+                $own = $client->getAll('/api/v1/accounts/' . (int)$account['id'] . '/external_tools');
+                $match = CanvasLtiDeployer::findMatchingTool($own, $effective['launch_url']);
+                if ($match === null || CanvasLtiDeployer::doubtfulMatch($match) !== null || !CanvasLtiDeployer::lacksNav($match)) {
+                    continue;
+                }
+                $label = 'Account "' . (string)($account['name'] ?? $account['id']) . '": SLO Cloud ' . CanvasLtiDeployer::describeTool($match);
+                if (empty($settings['dry_run'])) {
+                    $client->put('/api/v1/accounts/' . (int)$account['id'] . '/external_tools/' . (int)$match['id'], [
+                        'course_navigation' => CanvasLtiDeployer::navPlacement($settings['link_name']),
+                    ]);
+                    $notes[] = $label . ': Course Navigation link added.';
+                } else {
+                    $notes[] = $label . ': would get a Course Navigation link.';
+                }
+                $accountNavFixed = true;
+            }
+            if ($accounts !== [] && !$accountNavFixed) {
+                $notes[] = 'No account-level SLO Cloud tool without a nav link was found in your admin accounts, so no account tool was changed.';
+            }
+        }
+
         $accountTool = $accounts !== [];
         foreach ($accounts as $account) {
             $tools = $client->getAll('/api/v1/accounts/' . (int)$account['id'] . '/external_tools', ['include_parents' => 'true']);
@@ -520,6 +592,7 @@ final class CanvasDeployRun
                 'lti_secret' => $effective['consumer_secret'] === '' ? '' : (new Encryption($runKey))->encrypt($effective['consumer_secret']),
                 'settings' => $settings,
                 'account_tool' => $accountTool,
+                'account_nav_fixed' => $accountNavFixed,
                 'accounts' => $accountIds,
                 'account_index' => 0,
                 'phase' => $isCourseScope ? 'ids' : 'main',
@@ -574,6 +647,7 @@ final class CanvasDeployRun
             'dry_run' => $run['settings']['dry_run'],
             'update_existing' => $run['settings']['update_existing'] ?? false,
             'account_tool' => $run['account_tool'],
+            'account_nav_fixed' => $run['account_nav_fixed'] ?? false,
         ], $this->sisInspector);
 
         $delay = $run['settings']['course_delay_ms'] / 1000;
@@ -692,12 +766,12 @@ final class CanvasDeployRun
             default => null,
         };
         // Runs started before the nav counts existed have no such keys yet.
-        $counts += array_fill_keys(['nav_added', 'nav_would_add', 'nav_present', 'nav_missing'], 0);
+        $counts += array_fill_keys(['nav_added', 'nav_would_add', 'nav_present', 'nav_not_added'], 0);
         match ($row['nav'] ?? '') {
             'added' => $counts['nav_added']++,
             'would_add' => $counts['nav_would_add']++,
             'present' => $counts['nav_present']++,
-            'missing' => $counts['nav_missing']++,
+            'not_added' => $counts['nav_not_added']++,
             default => null,
         };
         match ($row['module']) {

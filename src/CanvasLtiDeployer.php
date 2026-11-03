@@ -126,6 +126,43 @@ final class CanvasLtiDeployer
         return ['enabled' => 'true', 'visibility' => 'admins', 'default' => 'enabled', 'text' => $linkName];
     }
 
+    /**
+     * What a course already has, without changing anything: app (yes, no, doubtful), nav
+     * (yes, no) and module (yes, no). Used to flag courses in the course list.
+     */
+    public static function inspectCourse(CanvasClient $client, int $courseId, string $launchUrl): array
+    {
+        $tools = $client->getAll("/api/v1/courses/{$courseId}/external_tools", ['include_parents' => 'true']);
+        $match = self::findMatchingTool($tools, $launchUrl);
+        $app = $match === null ? 'no' : (self::doubtfulMatch($match) !== null ? 'doubtful' : 'yes');
+        $nav = 'no';
+        foreach ($tools as $tool) {
+            if (is_array($tool) && self::findMatchingTool([$tool], $launchUrl) !== null
+                && self::doubtfulMatch($tool) === null && !self::lacksNav($tool)) {
+                $nav = 'yes';
+                break;
+            }
+        }
+        $launch = self::normalizeUrl($launchUrl);
+        $module = 'no';
+        foreach ($client->getAll("/api/v1/courses/{$courseId}/modules", ['include' => ['items']]) as $item) {
+            $items = is_array($item['items'] ?? null) ? $item['items']
+                : $client->getAll("/api/v1/courses/{$courseId}/modules/" . (int)($item['id'] ?? 0) . '/items');
+            foreach ($items as $entry) {
+                if (is_array($entry) && ($entry['type'] ?? '') === 'ExternalTool' && self::normalizeUrl($entry['external_url'] ?? null) === $launch) {
+                    $module = 'yes';
+                    break 2;
+                }
+            }
+        }
+        return [
+            'app' => $app,
+            'nav' => $nav,
+            'module' => $module,
+            'tool' => $match === null ? '' : self::describeTool($match),
+        ];
+    }
+
     /** Warnings about an existing SLO Cloud tool that is left alone. */
     public static function toolWarnings(array $tool, string $consumerKey): array
     {
@@ -414,9 +451,13 @@ final class CanvasLtiDeployer
                     $nav = 'added';
                     return 'created_for_nav';
                 }
-                $notes[] = 'SLO Cloud ' . self::describeTool($match) . ' comes from the account and has no Course Navigation link.'
-                    . ' Enter the LTI key and secret to add a nav link in this course, or add it to the account tool under Admin > Settings > Apps.';
-                $nav = 'missing';
+                // The run is adding the nav link to the account tool itself (dry run: would).
+                if (!empty($this->settings['account_nav_fixed'])) {
+                    $nav = !empty($this->settings['dry_run']) ? 'would_add' : 'added';
+                    return 'present_account';
+                }
+                // The usual setup: the account tool works; the nav link just isn't added here.
+                $nav = 'not_added';
                 return 'present_account';
             }
             if (self::lacksNav($ownMatch)) {

@@ -593,9 +593,9 @@ $check($started['status'] === 200 && ($started['body']['account_tool'] ?? true) 
 $batches = [];
 $rows = $runAll($accountNoNavService, $started['body']['run_id'], $started['body']['run_key'], $batches);
 $accountNoNavService->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
-$check(($rows[0]['tool'] ?? '') === 'present_account' && ($rows[0]['nav'] ?? '') === 'missing' && ($rows[0]['status'] ?? '') === 'warning' && ($rows[0]['module'] ?? '') === 'created'
-    && $hasNote($rows[0], 'Admin > Settings > Apps') && $accountNoNav->state['courses'][1001]['tools'] === [],
-    'Account tool without a nav link and no credentials: module not added, or the missing nav not reported.');
+$check(($rows[0]['tool'] ?? '') === 'present_account' && ($rows[0]['nav'] ?? '') === 'not_added' && ($rows[0]['status'] ?? '') === 'ok' && ($rows[0]['module'] ?? '') === 'created'
+    && $accountNoNav->state['courses'][1001]['tools'] === [],
+    'Account tool without a nav link and no credentials: should be OK, nav "not added", module added.');
 
 // Same, with a key and secret: a course tool with the nav link is added.
 $accountNoNav2 = new FakeCanvas(FakeCanvas::scenario(['account_tool' => true]), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
@@ -609,6 +609,36 @@ $accountNoNavService2->dispatch('run_finish', ['run_id' => $started['body']['run
 $added = $accountNoNav2->state['courses'][1001]['tools'][0] ?? [];
 $check(($rows[0]['tool'] ?? '') === 'created_for_nav' && ($rows[0]['nav'] ?? '') === 'added' && ($rows[0]['status'] ?? '') === 'ok' && ($rows[0]['module'] ?? '') === 'created'
     && !empty($added['course_navigation']), 'Account tool without a nav link: the course nav link was not added with a key and secret.');
+
+// Opt-in: add the nav link to the account tool itself. A dry run changes nothing.
+foreach ([true, false] as $dry) {
+    $fixCanvas = new FakeCanvas(FakeCanvas::scenario(['account_tool' => true]), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
+    $fixCanvas->state['account_tools'][0]['course_navigation'] = null;
+    $fixStore = [];
+    $fixService = $noLti($fixStore, $fixCanvas);
+    $started = $fixService->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'lti_launch_url' => $launch, 'fix_account_nav' => '1', 'dry_run' => $dry ? '1' : '0']));
+    $batches = [];
+    $rows = $runAll($fixService, $started['body']['run_id'], $started['body']['run_key'], $batches);
+    $fixService->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
+    $accountNav = $fixCanvas->state['account_tools'][0]['course_navigation'] ?? null;
+    $check($dry ? ($accountNav === null && ($rows[0]['nav'] ?? '') === 'would_add') : (!empty($accountNav) && ($rows[0]['nav'] ?? '') === 'present'),
+        'Adding the nav link to the account tool did not work' . ($dry ? ' (dry run)' : '') . '.');
+    $check($fixCanvas->state['courses'][1001]['tools'] === [], 'A course tool was created although the account tool got the nav link.');
+}
+
+// Course list flags: app, nav and module, read-only.
+$flagsCanvas = new FakeCanvas(FakeCanvas::scenario(), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
+$flagsStore = [];
+$flagsService = $noLti($flagsStore, $flagsCanvas);
+$noUrl = $flagsService->dispatch('course_flags', ['base_url' => 'https://canvas.test', 'canvas_token' => FakeCanvas::TOKEN, 'course_ids' => '1001']);
+$check(($noUrl['body']['launch_url_known'] ?? true) === false, 'Course flags ran without a launch URL.');
+$callsBefore = count($flagsCanvas->state['calls']);
+$flagged = $flagsService->dispatch('course_flags', ['base_url' => 'https://canvas.test', 'canvas_token' => FakeCanvas::TOKEN, 'lti_launch_url' => $launch, 'course_ids' => '1001,1002,1011']);
+$f = $flagged['body']['flags'] ?? [];
+$check(($f['1001'] ?? []) === array_merge($f['1001'] ?? [], ['app' => 'no', 'nav' => 'no', 'module' => 'no'])
+    && ($f['1002']['app'] ?? '') === 'yes' && ($f['1002']['nav'] ?? '') === 'yes' && ($f['1002']['module'] ?? '') === 'no'
+    && ($f['1011']['module'] ?? '') === 'yes', 'Course list flags are wrong.');
+$check(!array_filter(array_slice($flagsCanvas->state['calls'], $callsBefore), static fn(string $call): bool => !str_starts_with($call, 'GET ')), 'Course list flags changed something in Canvas.');
 $removeNeedsUrl = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'operation' => 'remove']));
 $check($removeNeedsUrl['status'] === 422 && array_keys($removeNeedsUrl['body']['fields'] ?? []) === ['lti_launch_url'], 'Removing should only need the launch URL.');
 $started = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'lti_launch_url' => $launch, 'lti_consumer_key' => 'typed-key', 'lti_consumer_secret' => 'typed-secret']));

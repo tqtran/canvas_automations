@@ -133,6 +133,9 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                                     <thead>
                                         <tr>
                                             <th scope="col" style="width: 2.5rem"><span class="visually-hidden">Selected</span></th>
+                                            <th scope="col" class="text-center" title="SLO Cloud tool in the course or from its account">App</th>
+                                            <th scope="col" class="text-center" title="SLO Cloud link in Course Navigation">Nav</th>
+                                            <th scope="col" class="text-center" title="Module link to SLO Cloud">Module</th>
                                             <th scope="col">Course</th>
                                             <th scope="col">Code</th>
                                             <th scope="col">Term</th>
@@ -142,6 +145,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                                     <tbody id="cdCourseBody"></tbody>
                                 </table>
                             </div>
+                            <div id="cdFlagsStatus" class="form-text" role="status" aria-live="polite"></div>
                             <div id="cdPickedEmpty" class="form-text d-none">No courses match.</div>
                             <div id="cdPickedError" class="invalid-feedback"></div>
                         </div>
@@ -264,6 +268,11 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                         <input class="form-check-input" type="checkbox" id="cdUpdateExisting">
                         <label class="form-check-label" for="cdUpdateExisting">Also update tools that are already in the course to use these credentials</label>
                         <div class="form-text">Off by default, so a tool that already works is left alone. Course tools with the same launch URL are given this key and secret; a dry run lists which ones. A tool installed at the account level can't be changed from a course.</div>
+                    </div>
+                    <div class="form-check mb-3 d-none" id="cdFixAccountNavWrap">
+                        <input class="form-check-input" type="checkbox" id="cdFixAccountNav">
+                        <label class="form-check-label" for="cdFixAccountNav">Add the nav link to the account's SLO Cloud tool</label>
+                        <div class="form-text">For an account-level SLO Cloud tool that has no Course Navigation link. Adds it once on the account tool, so every course under that account shows SLO Cloud. Needs an account admin token, not the key or secret. A dry run only says whether it would.</div>
                     </div>
                     <div id="cdFormError" class="alert alert-danger d-none" role="alert"></div>
                     <div id="cdConfirmNote" class="alert alert-warning d-none" role="alert"></div>
@@ -405,6 +414,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
         courseFilter: byId('cdCourseFilter'), courseTerm: byId('cdCourseTerm'), showConcluded: byId('cdShowConcluded'),
         selectVisible: byId('cdSelectVisible'), clearSelection: byId('cdClearSelection'), selectedCount: byId('cdSelectedCount'),
         pickedTotal: byId('cdPickedTotal'), pickedEmpty: byId('cdPickedEmpty'), adminScopes: byId('cdAdminScopes'),
+        flagsStatus: byId('cdFlagsStatus'), fixAccountNav: byId('cdFixAccountNav'), fixAccountNavWrap: byId('cdFixAccountNavWrap'),
         adminAccounts: byId('cdAdminAccounts'), scopePicked: byId('cdScopePicked'),
     };
     const fieldInputs = {
@@ -414,7 +424,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
     };
     const labels = {
         tool: { updated: 'Updated', would_update: 'Would update', removed: 'Removed', would_remove: 'Would remove', absent: 'Not installed', created: 'Created', would_create: 'Would create', present: 'Already present', present_account: 'Present (account level)', needs_credentials: 'Needs key and secret', doubtful: 'Other tool matched, nothing added', created_for_nav: 'Created (for nav link)', would_create_for_nav: 'Would create (for nav link)', skipped: 'Skipped', failed: 'Failed' },
-        nav: { present: 'Already present', added: 'Added', would_add: 'Would add', missing: 'Missing', skipped: 'Skipped' },
+        nav: { present: 'Already present', added: 'Added', would_add: 'Would add', not_added: 'Not added (needs key and secret)', skipped: 'Skipped' },
         module: { removed: 'Link removed', would_remove: 'Would remove link', none: 'None found', created: 'Module created', added: 'Link added', would_create: 'Would create module', would_add: 'Would add link', present: 'Already present', off: 'Not requested', skipped: 'Skipped', failed: 'Failed' },
         status: { ok: 'OK', warning: 'Warning', failed: 'Failed', skipped: 'Skipped' },
         scope: { picked: 'Courses I choose', course: 'Course by Canvas ID', term: 'Term', active: 'All active courses', all: 'All courses, including concluded' },
@@ -540,6 +550,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
             course_delay_ms: els.delay.value.trim(),
             operation: operation(),
             update_existing: els.updateExisting.checked && operation() === 'deploy' ? '1' : '0',
+            fix_account_nav: els.fixAccountNav.checked && operation() === 'deploy' ? '1' : '0',
             scope,
             scope_value: scopeValue,
         };
@@ -549,7 +560,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
     const wire = (settings) => (settings.scope === 'picked' ? Object.assign({}, settings, { scope: 'course' }) : settings);
 
     function describe(key, value, scope) {
-        if (key === 'create_module' || key === 'update_existing') return value === true || value === '1' ? 'Yes' : 'No';
+        if (key === 'create_module' || key === 'update_existing' || key === 'fix_account_nav') return value === true || value === '1' ? 'Yes' : 'No';
         if (key === 'scope') return labels.scope[value] || 'Not chosen';
         if (key === 'scope_value') {
             if (scope === 'term') {
@@ -566,7 +577,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
     }
 
     function comparable(key, value) {
-        if (key === 'create_module' || key === 'update_existing') return value === true || value === '1' ? '1' : '0';
+        if (key === 'create_module' || key === 'update_existing' || key === 'fix_account_nav') return value === true || value === '1' ? '1' : '0';
         if (key === 'base_url') return String(value || '').trim().replace(/\/+$/, '').toLowerCase();
         return String(value ?? '').trim();
     }
@@ -574,7 +585,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
     function renderSummary() {
         const current = currentSettings();
         const rows = [
-            ['Canvas URL', 'base_url'], ['Action', 'operation'], ['Update existing tools', 'update_existing'], ['Link name', 'link_name'], ['Add module', 'create_module'], ['Module name', 'module_name'],
+            ['Canvas URL', 'base_url'], ['Action', 'operation'], ['Update existing tools', 'update_existing'], ['Add nav to account tool', 'fix_account_nav'], ['Link name', 'link_name'], ['Add module', 'create_module'], ['Module name', 'module_name'],
             ['Delay between courses', 'course_delay_ms'], ['Courses', 'scope'], ['Course IDs or term', 'scope_value'],
         ];
         let changed = 0;
@@ -694,6 +705,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
             box.checked = selected.has(course.id);
             box.dataset.courseId = String(course.id);
             pick.appendChild(box);
+            const flagCells = ['app', 'nav', 'module'].map((key) => flagCell(courseFlags.get(course.id), key));
             const name = document.createElement('td');
             const label = document.createElement('label');
             label.htmlFor = box.id;
@@ -710,12 +722,71 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                 td.textContent = value || '';
                 return td;
             });
-            tr.append(pick, name, ...cells);
+            tr.append(pick, ...flagCells, name, ...cells);
             return tr;
         }));
         els.pickedEmpty.classList.toggle('d-none', rows.length > 0);
         updateSelectedCount();
     }
+
+    // App / Nav / Module flags per course, filled in the background after the list loads.
+    const courseFlags = new Map();
+    let flagsGeneration = 0;
+    const FLAG_TEXT = {
+        yes: ['✓', 'text-success', 'Yes'],
+        no: ['✗', 'text-danger', 'No'],
+        doubtful: ['?', 'text-warning', 'A tool on the same domain matched; it may not be SLO Cloud'],
+        error: ['!', 'text-warning', 'Could not check'],
+    };
+
+    function flagCell(flags, key) {
+        const td = document.createElement('td');
+        td.className = 'text-center';
+        if (!flags) {
+            td.textContent = '…';
+            td.classList.add('text-body-secondary');
+            td.title = 'Not checked yet';
+            return td;
+        }
+        const [symbol, css, text] = FLAG_TEXT[flags[key]] || ['', '', ''];
+        td.textContent = symbol;
+        if (css) td.classList.add(css, 'fw-bold');
+        td.title = text + (key === 'app' && flags.tool ? ': ' + flags.tool : '');
+        return td;
+    }
+
+    async function loadFlags() {
+        const generation = ++flagsGeneration;
+        courseFlags.clear();
+        renderCourses();
+        if (!courses.length) { els.flagsStatus.textContent = ''; return; }
+        const launch = els.ltiOwn.checked ? els.ltiUrl.value.trim() : '';
+        const ids = courses.map((course) => course.id);
+        for (let start = 0; start < ids.length; start += 10) {
+            if (generation !== flagsGeneration) return;
+            els.flagsStatus.textContent = 'Checking SLO Cloud in each course: ' + start + ' of ' + ids.length + '…';
+            let result;
+            try {
+                result = await post('course_flags', {
+                    base_url: els.baseUrl.value.trim(), canvas_token: els.token.value,
+                    lti_launch_url: launch, course_ids: ids.slice(start, start + 10).join(','),
+                });
+            } catch (error) {
+                if (generation === flagsGeneration) els.flagsStatus.textContent = 'Could not check courses: ' + (error.message || 'unknown error');
+                return;
+            }
+            if (generation !== flagsGeneration) return;
+            if (!result.launch_url_known) {
+                els.flagsStatus.textContent = 'Enter the SLO Cloud LTI launch URL below to see which courses already have the app, nav link and module.';
+                return;
+            }
+            Object.entries(result.flags || {}).forEach(([id, flags]) => courseFlags.set(Number(id), flags));
+            renderCourses();
+        }
+        els.flagsStatus.textContent = 'App, Nav and Module: ✓ already there, ✗ missing, ? another tool on the same domain matched.';
+    }
+    els.ltiUrl.addEventListener('change', () => { if (courses.length) loadFlags(); });
+    els.ltiOwn.addEventListener('change', () => { if (courses.length) loadFlags(); });
 
     function setCourses(list) {
         courses = list;
@@ -763,6 +834,8 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
             connectedAdmin = !!result.is_admin;
             maxSelectable = listing.max_selectable || maxSelectable;
             setCourses(listing.courses);
+            syncOperation();
+            loadFlags();
             els.afterConnect.classList.remove('d-none');
             els.adminScopes.classList.toggle('d-none', !connectedAdmin);
             byId('cdAdminNote').classList.toggle('d-none', !connectedAdmin);
@@ -833,7 +906,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
             [dryRun ? 'Tools to update' : 'Tools updated', dryRun ? counts.tool_would_update : counts.tool_updated],
             [dryRun ? 'Nav links to add' : 'Nav links added', (dryRun ? counts.nav_would_add : counts.nav_added) || 0],
             ['Nav link already present', counts.nav_present || 0],
-            ['Nav link missing', counts.nav_missing || 0],
+            ['Nav link not added', counts.nav_not_added || 0],
             [dryRun ? 'Module links to add' : 'Module links added', dryRun ? counts.module_would_add : counts.module_created + counts.module_added],
             ['Module link already present', counts.module_present],
             ['Warnings', counts.warnings],
@@ -1078,6 +1151,9 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
         syncLti();
         els.updateWrap.classList.toggle('d-none', operation() === 'remove');
         if (operation() === 'remove') els.updateExisting.checked = false;
+        const showFixNav = connectedAdmin && operation() === 'deploy';
+        els.fixAccountNavWrap.classList.toggle('d-none', !showFixNav);
+        if (!showFixNav) els.fixAccountNav.checked = false;
         if (confirmingDeploy) return;
         const removing = operation() === 'remove';
         els.deploy.textContent = removing ? 'Remove' : 'Deploy';

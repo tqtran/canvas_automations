@@ -132,6 +132,18 @@ final class FakeCanvas
             'GET /api/v1/accounts' => self::json(200, $this->state['accounts']),
             'GET /api/v1/accounts/:id/terms' => self::json(200, ['enrollment_terms' => array_values($this->state['terms'])]),
             'GET /api/v1/accounts/:id/external_tools' => self::json(200, $this->state['account_tools']),
+            'PUT /api/v1/accounts/:id/external_tools/:id' => (function () use ($path, $form): array {
+                preg_match('#/external_tools/(\d+)#', $path, $toolMatch);
+                foreach ($this->state['account_tools'] as &$tool) {
+                    if ($tool['id'] === (int)$toolMatch[1]) {
+                        if (array_key_exists('course_navigation', $form)) {
+                            $tool['course_navigation'] = $form['course_navigation'];
+                        }
+                        return self::json(200, $tool);
+                    }
+                }
+                return self::json(404, ['errors' => [['message' => 'tool not found']]]);
+            })(),
             'GET /api/v1/accounts/:id/courses' => $this->listCourses($query, $origin, $path),
             'GET /api/v1/courses' => $this->listUserCourses($query, $origin, $path),
             'GET /api/v1/courses/:id' => $this->course($path, fn(array $course): array => self::json(200, $this->publicCourse($course))),

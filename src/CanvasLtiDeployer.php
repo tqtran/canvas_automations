@@ -201,6 +201,7 @@ final class CanvasLtiDeployer
             'sis_course_id' => (string)($course['sis_course_id'] ?? ''),
             'term' => (string)($course['term']['name'] ?? ''),
             'tool' => '',
+            'nav' => '',
             'module' => '',
             'status' => 'ok',
             'notes' => [],
@@ -209,13 +210,13 @@ final class CanvasLtiDeployer
 
     public static function failedRow(array $course, string $message): array
     {
-        return ['tool' => 'failed', 'module' => 'skipped', 'status' => 'failed', 'notes' => [$message]]
+        return ['tool' => 'failed', 'nav' => 'skipped', 'module' => 'skipped', 'status' => 'failed', 'notes' => [$message]]
             + self::resultRow($course);
     }
 
     public static function blueprintRow(array $course): array
     {
-        return ['tool' => 'skipped', 'module' => 'skipped', 'status' => 'skipped', 'notes' => [self::BLUEPRINT_NOTE]]
+        return ['tool' => 'skipped', 'nav' => 'skipped', 'module' => 'skipped', 'status' => 'skipped', 'notes' => [self::BLUEPRINT_NOTE]]
             + self::resultRow($course);
     }
 
@@ -236,11 +237,14 @@ final class CanvasLtiDeployer
         }
 
         try {
-            $row['tool'] = $this->ensureTool($courseId, $row['notes']);
+            $nav = 'skipped';
+            $row['tool'] = $this->ensureTool($courseId, $row['notes'], $nav);
+            $row['nav'] = $nav;
         } catch (CanvasDeadlineExceeded $exception) {
             throw $exception;
         } catch (CanvasApiException $exception) {
             $row['tool'] = 'failed';
+            $row['nav'] = 'skipped';
             $row['module'] = empty($this->settings['create_module']) ? 'off' : 'skipped';
             $row['status'] = 'failed';
             $row['notes'][] = 'Tool step failed: ' . $exception->getMessage();
@@ -363,9 +367,15 @@ final class CanvasLtiDeployer
         return $dryRun ? 'would_remove' : 'removed';
     }
 
-    private function ensureTool(int $courseId, array &$notes): string
+    /**
+     * Returns what happened to the tool; $nav gets what happened to its Course Navigation
+     * link: present, added, would_add, missing or skipped.
+     */
+    private function ensureTool(int $courseId, array &$notes, string &$nav): string
     {
+        $nav = 'skipped';
         if (!empty($this->settings['account_tool'])) {
+            $nav = 'present';
             return 'present_account';
         }
         $launchUrl = (string)$this->settings['launch_url'];
@@ -397,25 +407,33 @@ final class CanvasLtiDeployer
                 // course-level tool, which Canvas only creates with a key and secret.
                 if ((string)($this->settings['consumer_key'] ?? '') !== '' && (string)($this->settings['consumer_secret'] ?? '') !== '') {
                     if (!empty($this->settings['dry_run'])) {
-                        return 'would_add_nav';
+                        $nav = 'would_add';
+                        return 'would_create_for_nav';
                     }
                     $this->client->post("/api/v1/courses/{$courseId}/external_tools", self::toolPayload($this->settings));
-                    return 'nav_added';
+                    $nav = 'added';
+                    return 'created_for_nav';
                 }
                 $notes[] = 'SLO Cloud ' . self::describeTool($match) . ' comes from the account and has no Course Navigation link.'
                     . ' Enter the LTI key and secret to add a nav link in this course, or add it to the account tool under Admin > Settings > Apps.';
-                return 'no_nav_account';
+                $nav = 'missing';
+                return 'present_account';
             }
             if (self::lacksNav($ownMatch)) {
                 if (!empty($this->settings['dry_run'])) {
-                    return 'would_add_nav';
+                    $nav = 'would_add';
+                    return 'present';
                 }
                 $this->client->put("/api/v1/courses/{$courseId}/external_tools/" . (int)$ownMatch['id'], [
                     'course_navigation' => self::navPlacement((string)$this->settings['link_name']),
                 ]);
-                return 'nav_added';
+                $nav = 'added';
+                return 'present';
             }
             $match = $ownMatch;
+        }
+        if ($match !== null) {
+            $nav = 'present';
         }
         if ($match !== null) {
             if (!empty($this->settings['update_existing'])) {
@@ -443,9 +461,11 @@ final class CanvasLtiDeployer
             return 'needs_credentials';
         }
         if (!empty($this->settings['dry_run'])) {
+            $nav = 'would_add';
             return 'would_create';
         }
         $this->client->post("/api/v1/courses/{$courseId}/external_tools", self::toolPayload($this->settings));
+        $nav = 'added';
         return 'created';
     }
 

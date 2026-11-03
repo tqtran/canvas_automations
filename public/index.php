@@ -324,6 +324,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                                 <th scope="col">SIS ID</th>
                                 <th scope="col">Term</th>
                                 <th scope="col">Tool</th>
+                                <th scope="col">Nav</th>
                                 <th scope="col">Module</th>
                                 <th scope="col">Status</th>
                                 <th scope="col">Notes</th>
@@ -412,7 +413,8 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
         module_name: ['cdModuleName', 'cdModuleNameError'], course_delay_ms: ['cdDelay', 'cdDelayError'], scope: ['cdScopeCourse', 'cdScopeError'],
     };
     const labels = {
-        tool: { updated: 'Updated', would_update: 'Would update', removed: 'Removed', would_remove: 'Would remove', absent: 'Not installed', created: 'Created', would_create: 'Would create', present: 'Already present', present_account: 'Present (account level)', needs_credentials: 'Needs key and secret', doubtful: 'Other tool matched, nothing added', nav_added: 'Nav link added', would_add_nav: 'Would add nav link', no_nav_account: 'Present (account), no nav link', skipped: 'Skipped', failed: 'Failed' },
+        tool: { updated: 'Updated', would_update: 'Would update', removed: 'Removed', would_remove: 'Would remove', absent: 'Not installed', created: 'Created', would_create: 'Would create', present: 'Already present', present_account: 'Present (account level)', needs_credentials: 'Needs key and secret', doubtful: 'Other tool matched, nothing added', created_for_nav: 'Created (for nav link)', would_create_for_nav: 'Would create (for nav link)', skipped: 'Skipped', failed: 'Failed' },
+        nav: { present: 'Already present', added: 'Added', would_add: 'Would add', missing: 'Missing', skipped: 'Skipped' },
         module: { removed: 'Link removed', would_remove: 'Would remove link', none: 'None found', created: 'Module created', added: 'Link added', would_create: 'Would create module', would_add: 'Would add link', present: 'Already present', off: 'Not requested', skipped: 'Skipped', failed: 'Failed' },
         status: { ok: 'OK', warning: 'Warning', failed: 'Failed', skipped: 'Skipped' },
         scope: { picked: 'Courses I choose', course: 'Course by Canvas ID', term: 'Term', active: 'All active courses', all: 'All courses, including concluded' },
@@ -829,6 +831,9 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
             [dryRun ? 'Tools to create' : 'Tools created', dryRun ? counts.tool_would_create : counts.tool_created],
             ['Tool already present', counts.tool_present],
             [dryRun ? 'Tools to update' : 'Tools updated', dryRun ? counts.tool_would_update : counts.tool_updated],
+            [dryRun ? 'Nav links to add' : 'Nav links added', (dryRun ? counts.nav_would_add : counts.nav_added) || 0],
+            ['Nav link already present', counts.nav_present || 0],
+            ['Nav link missing', counts.nav_missing || 0],
             [dryRun ? 'Module links to add' : 'Module links added', dryRun ? counts.module_would_add : counts.module_created + counts.module_added],
             ['Module link already present', counts.module_present],
             ['Warnings', counts.warnings],
@@ -854,7 +859,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
         const tr = document.createElement('tr');
         [
             String(row.course_id), row.name, row.sis_course_id, row.term,
-            labels.tool[row.tool] || row.tool, labels.module[row.module] || row.module,
+            labels.tool[row.tool] || row.tool, labels.nav[row.nav] || row.nav || '', labels.module[row.module] || row.module,
             labels.status[row.status] || row.status, (row.notes || []).join(' '),
         ].forEach((value) => {
             const td = document.createElement('td');
@@ -885,10 +890,10 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
 
     els.csv.addEventListener('click', () => {
         if (!run) return;
-        const header = ['course_id', 'course_name', 'sis_course_id', 'term', 'tool', 'module', 'status', 'notes'];
+        const header = ['course_id', 'course_name', 'sis_course_id', 'term', 'tool', 'nav', 'module', 'status', 'notes'];
         const lines = [header.map(csvCell).join(',')];
         run.results.forEach((row) => {
-            lines.push([row.course_id, row.name, row.sis_course_id, row.term, row.tool, row.module, row.status, (row.notes || []).join(' | ')].map(csvCell).join(','));
+            lines.push([row.course_id, row.name, row.sis_course_id, row.term, row.tool, row.nav || '', row.module, row.status, (row.notes || []).join(' | ')].map(csvCell).join(','));
         });
         const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
         const link = document.createElement('a');

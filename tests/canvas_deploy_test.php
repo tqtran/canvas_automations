@@ -540,6 +540,7 @@ $check(($byId[1001]['tool'] ?? '') === 'needs_credentials' && ($byId[1001]['stat
 $check(($urlOnlyCanvas->state['courses'][1001]['tools'] ?? []) === [] && ($urlOnlyCanvas->state['courses'][1001]['modules'] ?? []) === [], 'Something was written to a course that was skipped for missing credentials.');
 $check(($byId[1002]['tool'] ?? '') === 'present' && ($byId[1003]['tool'] ?? '') === 'present', 'Existing tools were not recognized without credentials.');
 $check(!array_filter($byId[1003]['notes'] ?? [], static fn(string $note): bool => str_contains($note, 'different consumer key')), 'A consumer key warning was shown although no key was entered.');
+$check(($byId[1001]['nav'] ?? '') === 'skipped' && ($byId[1002]['nav'] ?? '') === 'present', 'The Nav column is wrong for a skipped course or an existing tool.');
 
 // The added module goes to the top: a new one is created first, an existing one is moved up.
 $topCanvas = new FakeCanvas(FakeCanvas::scenario(), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
@@ -572,7 +573,7 @@ $noNav->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key
 $byId = array_column($rows, null, 'course_id');
 $hasNote = static fn(array $row, string $text): bool => (bool)array_filter($row['notes'] ?? [], static fn(string $note): bool => str_contains($note, $text));
 $navTool = $noNavCanvas->state['courses'][1002]['tools'][0];
-$check(($byId[1002]['tool'] ?? '') === 'nav_added' && ($byId[1002]['module'] ?? '') === 'created'
+$check(($byId[1002]['tool'] ?? '') === 'present' && ($byId[1002]['nav'] ?? '') === 'added' && ($byId[1002]['module'] ?? '') === 'created'
     && ($byId[1002]['status'] ?? '') === 'ok'
     && ($navTool['course_navigation']['text'] ?? '') !== '' && empty($navTool['shared_secret_set']),
     'A course tool without a nav link did not get one (without touching its secret).');
@@ -592,7 +593,7 @@ $check($started['status'] === 200 && ($started['body']['account_tool'] ?? true) 
 $batches = [];
 $rows = $runAll($accountNoNavService, $started['body']['run_id'], $started['body']['run_key'], $batches);
 $accountNoNavService->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
-$check(($rows[0]['tool'] ?? '') === 'no_nav_account' && ($rows[0]['status'] ?? '') === 'warning' && ($rows[0]['module'] ?? '') === 'created'
+$check(($rows[0]['tool'] ?? '') === 'present_account' && ($rows[0]['nav'] ?? '') === 'missing' && ($rows[0]['status'] ?? '') === 'warning' && ($rows[0]['module'] ?? '') === 'created'
     && $hasNote($rows[0], 'Admin > Settings > Apps') && $accountNoNav->state['courses'][1001]['tools'] === [],
     'Account tool without a nav link and no credentials: module not added, or the missing nav not reported.');
 
@@ -606,7 +607,7 @@ $batches = [];
 $rows = $runAll($accountNoNavService2, $started['body']['run_id'], $started['body']['run_key'], $batches);
 $accountNoNavService2->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
 $added = $accountNoNav2->state['courses'][1001]['tools'][0] ?? [];
-$check(($rows[0]['tool'] ?? '') === 'nav_added' && ($rows[0]['status'] ?? '') === 'ok' && ($rows[0]['module'] ?? '') === 'created'
+$check(($rows[0]['tool'] ?? '') === 'created_for_nav' && ($rows[0]['nav'] ?? '') === 'added' && ($rows[0]['status'] ?? '') === 'ok' && ($rows[0]['module'] ?? '') === 'created'
     && !empty($added['course_navigation']), 'Account tool without a nav link: the course nav link was not added with a key and secret.');
 $removeNeedsUrl = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'operation' => 'remove']));
 $check($removeNeedsUrl['status'] === 422 && array_keys($removeNeedsUrl['body']['fields'] ?? []) === ['lti_launch_url'], 'Removing should only need the launch URL.');
@@ -616,7 +617,7 @@ $batches = [];
 $rows = $runAll($service, $started['body']['run_id'], $started['body']['run_key'], $batches);
 $service->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
 $installed = $typedCanvas->state['courses'][1001]['tools'][0] ?? [];
-$check(($rows[0]['tool'] ?? '') === 'created' && ($installed['consumer_key'] ?? '') === 'typed-key' && !empty($installed['shared_secret_set']), 'The tool was not installed with the typed key and secret.');
+$check(($rows[0]['tool'] ?? '') === 'created' && ($rows[0]['nav'] ?? '') === 'added' && ($installed['consumer_key'] ?? '') === 'typed-key' && !empty($installed['shared_secret_set']), 'The tool was not installed with the typed key and secret.');
 $check(!str_contains(json_encode($_SESSION ?? []) . json_encode($store), 'typed-secret'), 'The typed shared secret was stored in clear text.');
 
 // Non-admin tokens are refused.

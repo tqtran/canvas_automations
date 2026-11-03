@@ -82,7 +82,7 @@ final class CanvasDeployRun
         'processed', 'tool_created', 'tool_would_create', 'tool_present', 'module_created', 'module_added',
         'module_would_add', 'module_present', 'warnings', 'failed', 'skipped', 'out_of_scope',
         'tool_removed', 'tool_would_remove', 'tool_absent', 'module_removed', 'module_would_remove',
-        'tool_updated', 'tool_would_update',
+        'tool_updated', 'tool_would_update', 'nav_added', 'nav_would_add', 'nav_present', 'nav_missing',
     ];
 
     private array $store;
@@ -681,14 +681,23 @@ final class CanvasDeployRun
         $counts = &$run['counts'];
         $counts['processed']++;
         match ($row['tool']) {
-            'created' => $counts['tool_created']++,
-            'would_create' => $counts['tool_would_create']++,
+            'created', 'created_for_nav' => $counts['tool_created']++,
+            'would_create', 'would_create_for_nav' => $counts['tool_would_create']++,
             'present', 'present_account' => $counts['tool_present']++,
             'removed' => $counts['tool_removed']++,
-            'updated', 'nav_added' => $counts['tool_updated']++,
-            'would_update', 'would_add_nav' => $counts['tool_would_update']++,
+            'updated' => $counts['tool_updated']++,
+            'would_update' => $counts['tool_would_update']++,
             'would_remove' => $counts['tool_would_remove']++,
             'absent' => $counts['tool_absent']++,
+            default => null,
+        };
+        // Runs started before the nav counts existed have no such keys yet.
+        $counts += array_fill_keys(['nav_added', 'nav_would_add', 'nav_present', 'nav_missing'], 0);
+        match ($row['nav'] ?? '') {
+            'added' => $counts['nav_added']++,
+            'would_add' => $counts['nav_would_add']++,
+            'present' => $counts['nav_present']++,
+            'missing' => $counts['nav_missing']++,
             default => null,
         };
         match ($row['module']) {

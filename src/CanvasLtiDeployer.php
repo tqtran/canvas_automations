@@ -246,7 +246,7 @@ final class CanvasLtiDeployer
             $row['notes'][] = 'Tool step failed: ' . $exception->getMessage();
             return $row;
         }
-        if (in_array($row['tool'], ['needs_credentials', 'doubtful', 'no_nav_account'], true)) {
+        if (in_array($row['tool'], ['needs_credentials', 'doubtful'], true)) {
             // No trustworthy tool to link to, so nothing is added to the course.
             $row['module'] = empty($this->settings['create_module']) ? 'off' : 'skipped';
             $row['status'] = 'skipped';
@@ -393,8 +393,17 @@ final class CanvasLtiDeployer
             $own = $this->client->getAll("/api/v1/courses/{$courseId}/external_tools");
             $ownMatch = self::findMatchingTool($own, $launchUrl);
             if ($ownMatch === null) {
+                // The account tool cannot be changed from a course, so the nav link comes from a
+                // course-level tool, which Canvas only creates with a key and secret.
+                if ((string)($this->settings['consumer_key'] ?? '') !== '' && (string)($this->settings['consumer_secret'] ?? '') !== '') {
+                    if (!empty($this->settings['dry_run'])) {
+                        return 'would_add_nav';
+                    }
+                    $this->client->post("/api/v1/courses/{$courseId}/external_tools", self::toolPayload($this->settings));
+                    return 'nav_added';
+                }
                 $notes[] = 'SLO Cloud ' . self::describeTool($match) . ' comes from the account and has no Course Navigation link.'
-                    . ' Nothing was added; add the link in Canvas under Admin > Settings > Apps.';
+                    . ' Enter the LTI key and secret to add a nav link in this course, or add it to the account tool under Admin > Settings > Apps.';
                 return 'no_nav_account';
             }
             if (self::lacksNav($ownMatch)) {

@@ -213,7 +213,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                     <div class="mb-3">
                         <label for="cdLtiUrl" class="form-label">LTI launch URL</label>
                         <input type="url" class="form-control" id="cdLtiUrl" name="lti_launch_url" autocomplete="off" spellcheck="false"
-                            placeholder="https://your-slo-cloud-server/lti/launch.php" aria-describedby="cdLtiUrlError">
+                            placeholder="https://cloud.coastline.edu/SLO" aria-describedby="cdLtiUrlError">
                         <div id="cdLtiUrlError" class="invalid-feedback"></div>
                     </div>
                     <div class="row g-3" id="cdLtiKeyRow">

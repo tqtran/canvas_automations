@@ -555,9 +555,9 @@ $firstModule = static fn(int $id): string => (string)($topCanvas->state['courses
 $check($firstModule(1001) === 'SLO Cloud' && count($topCanvas->state['courses'][1001]['modules']) === 2, 'A new SLO Cloud module was not created at the top.');
 $check($firstModule(1010) === 'SLO Cloud' && count($topCanvas->state['courses'][1010]['modules']) === 2, 'An existing SLO Cloud module was not moved to the top.');
 
-// A site address instead of the launch URL is refused.
-$siteUrl = $urlOnly->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'lti_launch_url' => 'https://slo.example.edu/SLO']));
-$check($siteUrl['status'] === 422 && array_keys($siteUrl['body']['fields'] ?? []) === ['lti_launch_url'], 'A launch URL not ending in /lti/launch.php was accepted.');
+// Any https launch URL is accepted (e.g. https://cloud.coastline.edu/SLO); plain http is not.
+$httpUrl = $urlOnly->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'lti_launch_url' => 'http://slo.example.edu/SLO']));
+$check($httpUrl['status'] === 422 && array_keys($httpUrl['body']['fields'] ?? []) === ['lti_launch_url'], 'A plain http launch URL was accepted.');
 
 // Doubtful matches (no nav link, or matched only by domain) are reported and nothing is added.
 $noNavCanvas = new FakeCanvas(FakeCanvas::scenario(), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });

@@ -188,6 +188,11 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                         <div id="cdLinkNameError" class="invalid-feedback"></div>
                     </div>
                     <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="cdCreateNav" name="create_nav">
+                        <label class="form-check-label" for="cdCreateNav">Add a Course Navigation link to SLO Cloud</label>
+                        <div class="form-text">Where SLO Cloud comes from the account without a nav link, a course copy of the tool carries it. Courses that already have the nav link are left alone.</div>
+                    </div>
+                    <div class="form-check mb-2">
                         <input class="form-check-input" type="checkbox" id="cdCreateModule" name="create_module" <?= $cdDefaults['create_module'] ? 'checked' : '' ?>>
                         <label class="form-check-label" for="cdCreateModule">Also add an unpublished module with a link to SLO Cloud</label>
                     </div>
@@ -212,7 +217,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                     </div>
                     <p class="form-text" id="cdLtiHelp"><?= $cdServerLti
                         ? 'Not needed if SLO Cloud is already installed in these courses, or to use the settings saved on this server. Tick it to type your own. They are used for this run only and are never saved.'
-                        : 'The launch URL is required. The key and secret are only needed for courses that do not already get SLO Cloud from their account; without them those courses are skipped. They are used for this run only and are never saved.' ?></p>
+                        : 'Installing needs the launch URL, consumer key and shared secret; removing needs only the launch URL. They are used for this run only and are never saved.' ?></p>
                     <div id="cdLtiFields" class="<?= $cdServerLti ? 'd-none' : '' ?>">
                     <div class="mb-3">
                         <label for="cdLtiUrl" class="form-label">LTI launch URL</label>
@@ -397,7 +402,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
     const form = byId('canvasDeployForm');
     const els = {
         baseUrl: byId('cdBaseUrl'), token: byId('cdToken'), test: byId('cdTestConnection'), connection: byId('cdConnectionStatus'),
-        linkName: byId('cdLinkName'), createModule: byId('cdCreateModule'), moduleName: byId('cdModuleName'), delay: byId('cdDelay'),
+        linkName: byId('cdLinkName'), createNav: byId('cdCreateNav'), createModule: byId('cdCreateModule'), moduleName: byId('cdModuleName'), delay: byId('cdDelay'),
         courseIdsWrap: byId('cdCourseIdsWrap'), courseIds: byId('cdCourseIds'), termWrap: byId('cdTermWrap'),
         termSelectWrap: byId('cdTermSelectWrap'), termSelect: byId('cdTermSelect'), termIdWrap: byId('cdTermIdWrap'), termId: byId('cdTermId'),
         summary: byId('cdSummaryBody'), formError: byId('cdFormError'),
@@ -424,7 +429,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
     };
     const labels = {
         tool: { updated: 'Updated', would_update: 'Would update', removed: 'Removed', would_remove: 'Would remove', absent: 'Not installed', created: 'Created', would_create: 'Would create', present: 'Already present', present_account: 'Present (account level)', needs_credentials: 'Needs key and secret', doubtful: 'Other tool matched, nothing added', created_for_nav: 'Created (for nav link)', would_create_for_nav: 'Would create (for nav link)', skipped: 'Skipped', failed: 'Failed' },
-        nav: { present: 'Already present', added: 'Added', would_add: 'Would add', not_added: 'Not added (see notes)', would_try: 'Would try (no secret)', skipped: 'Skipped' },
+        nav: { present: 'Already present', added: 'Added', would_add: 'Would add', not_added: 'Not added (see notes)', off: 'Not requested', skipped: 'Skipped' },
         module: { removed: 'Link removed', would_remove: 'Would remove link', none: 'None found', created: 'Module created', added: 'Link added', would_create: 'Would create module', would_add: 'Would add link', present: 'Already present', off: 'Not requested', skipped: 'Skipped', failed: 'Failed' },
         status: { ok: 'OK', warning: 'Warning', failed: 'Failed', skipped: 'Skipped' },
         scope: { picked: 'Courses I choose', course: 'Course by Canvas ID', term: 'Term', active: 'All active courses', all: 'All courses, including concluded' },
@@ -545,6 +550,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
         return {
             base_url: els.baseUrl.value.trim(),
             link_name: els.linkName.value.trim(),
+            create_nav: els.createNav.checked && operation() === 'deploy' ? '1' : '0',
             create_module: els.createModule.checked ? '1' : '0',
             module_name: els.moduleName.value.trim(),
             course_delay_ms: els.delay.value.trim(),
@@ -560,7 +566,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
     const wire = (settings) => (settings.scope === 'picked' ? Object.assign({}, settings, { scope: 'course' }) : settings);
 
     function describe(key, value, scope) {
-        if (key === 'create_module' || key === 'update_existing' || key === 'fix_account_nav') return value === true || value === '1' ? 'Yes' : 'No';
+        if (key === 'create_module' || key === 'create_nav' || key === 'update_existing' || key === 'fix_account_nav') return value === true || value === '1' ? 'Yes' : 'No';
         if (key === 'scope') return labels.scope[value] || 'Not chosen';
         if (key === 'scope_value') {
             if (scope === 'term') {
@@ -577,7 +583,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
     }
 
     function comparable(key, value) {
-        if (key === 'create_module' || key === 'update_existing' || key === 'fix_account_nav') return value === true || value === '1' ? '1' : '0';
+        if (key === 'create_module' || key === 'create_nav' || key === 'update_existing' || key === 'fix_account_nav') return value === true || value === '1' ? '1' : '0';
         if (key === 'base_url') return String(value || '').trim().replace(/\/+$/, '').toLowerCase();
         return String(value ?? '').trim();
     }
@@ -585,7 +591,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
     function renderSummary() {
         const current = currentSettings();
         const rows = [
-            ['Canvas URL', 'base_url'], ['Action', 'operation'], ['Update existing tools', 'update_existing'], ['Add nav to account tool', 'fix_account_nav'], ['Link name', 'link_name'], ['Add module', 'create_module'], ['Module name', 'module_name'],
+            ['Canvas URL', 'base_url'], ['Action', 'operation'], ['Update existing tools', 'update_existing'], ['Add nav to account tool', 'fix_account_nav'], ['Link name', 'link_name'], ['Add navigation', 'create_nav'], ['Add module', 'create_module'], ['Module name', 'module_name'],
             ['Delay between courses', 'course_delay_ms'], ['Courses', 'scope'], ['Course IDs or term', 'scope_value'],
         ];
         let changed = 0;

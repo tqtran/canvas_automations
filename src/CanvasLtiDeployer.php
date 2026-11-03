@@ -179,16 +179,20 @@ final class CanvasLtiDeployer
     }
 
     /** Form fields for creating the course-level external tool. */
+    /** The course nav placement is included unless create_nav is set to false. */
     public static function toolPayload(array $settings): array
     {
-        return [
+        $payload = [
             'name' => (string)$settings['link_name'],
             'privacy_level' => 'public',
             'consumer_key' => (string)$settings['consumer_key'],
             'shared_secret' => (string)$settings['consumer_secret'],
             'url' => (string)$settings['launch_url'],
-            'course_navigation' => self::navPlacement((string)$settings['link_name']),
         ];
+        if ($settings['create_nav'] ?? true) {
+            $payload['course_navigation'] = self::navPlacement((string)$settings['link_name']);
+        }
+        return $payload;
     }
 
     /** Concluded by state, by a course end date that governs access, or by its term's end. */
@@ -440,57 +444,33 @@ final class CanvasLtiDeployer
             $own = $this->client->getAll("/api/v1/courses/{$courseId}/external_tools");
             $ownMatch = self::findMatchingTool($own, $launchUrl);
             if ($ownMatch === null) {
-                // The account tool cannot be changed from a course, so the nav link comes from a
-                // course-level tool, which Canvas only creates with a key and secret.
-                if ((string)($this->settings['consumer_key'] ?? '') !== '' && (string)($this->settings['consumer_secret'] ?? '') !== '') {
-                    if (!empty($this->settings['dry_run'])) {
-                        $nav = 'would_add';
-                        return 'would_create_for_nav';
-                    }
-                    $this->client->post("/api/v1/courses/{$courseId}/external_tools", self::toolPayload($this->settings));
-                    $nav = 'added';
-                    return 'created_for_nav';
-                }
                 // The run is adding the nav link to the account tool itself (dry run: would).
                 if (!empty($this->settings['account_nav_fixed'])) {
                     $nav = !empty($this->settings['dry_run']) ? 'would_add' : 'added';
                     return 'present_account';
                 }
-                // No key or secret: try a course copy anyway with the account tool's consumer key
-                // and no secret, and report exactly what Canvas does.
+                if (empty($this->settings['create_nav'])) {
+                    $nav = 'off';
+                    return 'present_account';
+                }
+                // The account tool cannot be changed from a course, so the nav link comes from a
+                // course-level copy, made with the key and secret the run requires for "Add navigation".
+                $accountKey = (string)($match['consumer_key'] ?? '');
+                if ($accountKey !== '' && $accountKey !== (string)($this->settings['consumer_key'] ?? '')) {
+                    $notes[] = 'The consumer key entered does not match the account SLO Cloud tool ' . self::describeTool($match)
+                        . ', so no nav link was added. Enter the same key and secret as the account tool.';
+                    $nav = 'not_added';
+                    return 'present_account';
+                }
                 if (!empty($this->settings['dry_run'])) {
-                    $nav = 'would_try';
+                    $nav = 'would_add';
                     return 'would_create_for_nav';
                 }
-                // First an empty secret; if Canvas refuses, a placeholder ("fake"), as people do in
-                // Canvas's own form for tools that need no credentials.
-                $accountKey = (string)($match['consumer_key'] ?? '');
-                $attempts = [
-                    'an empty shared secret' => ['consumer_key' => $accountKey, 'consumer_secret' => ''],
-                    'the placeholder secret "fake"' => ['consumer_key' => $accountKey !== '' ? $accountKey : 'fake', 'consumer_secret' => 'fake'],
-                ];
-                $refusals = [];
-                foreach ($attempts as $label => $credentials) {
-                    try {
-                        $this->client->post("/api/v1/courses/{$courseId}/external_tools", self::toolPayload($credentials + $this->settings));
-                    } catch (CanvasDeadlineExceeded $exception) {
-                        throw $exception;
-                    } catch (CanvasApiException $exception) {
-                        $refusals[] = 'with ' . $label . ': ' . $exception->getMessage();
-                        continue;
-                    }
-                    $notes[] = 'Nav link added with a course copy of the tool using ' . $label
-                        . ($refusals !== [] ? ' (Canvas refused ' . implode('; ', $refusals) . ')' : '')
-                        . '. Open SLO Cloud from the course nav to check it launches; if it fails, rerun with the key and secret and "Update existing tools" ticked.';
-                    $nav = 'added';
-                    return 'created_for_nav';
-                }
-                $notes[] = 'Tried to add the nav link with a course copy of the tool; Canvas refused ' . implode('; ', $refusals)
-                    . '. Tick "Add the nav link to the account\'s SLO Cloud tool", or enter the key and secret.';
-                $nav = 'not_added';
-                return 'present_account';
+                $this->client->post("/api/v1/courses/{$courseId}/external_tools", self::toolPayload($this->settings));
+                $nav = 'added';
+                return 'created_for_nav';
             }
-            if (self::lacksNav($ownMatch)) {
+            if (self::lacksNav($ownMatch) && !empty($this->settings['create_nav'])) {
                 if (!empty($this->settings['dry_run'])) {
                     $nav = 'would_add';
                     return 'present';
@@ -504,7 +484,7 @@ final class CanvasLtiDeployer
             $match = $ownMatch;
         }
         if ($match !== null) {
-            $nav = 'present';
+            $nav = self::lacksNav($match) ? 'off' : 'present';
         }
         if ($match !== null) {
             if (!empty($this->settings['update_existing'])) {
@@ -531,12 +511,13 @@ final class CanvasLtiDeployer
             $notes[] = self::NEEDS_CREDENTIALS_NOTE;
             return 'needs_credentials';
         }
+        $withNav = !empty($this->settings['create_nav']);
         if (!empty($this->settings['dry_run'])) {
-            $nav = 'would_add';
+            $nav = $withNav ? 'would_add' : 'off';
             return 'would_create';
         }
         $this->client->post("/api/v1/courses/{$courseId}/external_tools", self::toolPayload($this->settings));
-        $nav = 'added';
+        $nav = $withNav ? 'added' : 'off';
         return 'created';
     }
 

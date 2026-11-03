@@ -260,6 +260,8 @@ final class CanvasDeployRun
             && filter_var($input['update_existing'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $settings['fix_account_nav'] = $settings['operation'] === 'deploy'
             && filter_var($input['fix_account_nav'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $settings['create_nav'] = $settings['operation'] === 'deploy'
+            && filter_var($input['create_nav'] ?? false, FILTER_VALIDATE_BOOLEAN);
         return ['settings' => $settings, 'errors' => $errors];
     }
 
@@ -498,12 +500,14 @@ final class CanvasDeployRun
         // The key and secret are only needed to create a tool in a course that has none (a tool
         // pushed from the account needs nothing), or to rewrite existing tools. Without them,
         // courses that would need a new tool are skipped and say so.
-        if ($settings['operation'] === 'deploy' && !empty($settings['update_existing'])) {
+        // Installing always needs the real key and secret: a tool with the right launch URL but
+        // wrong credentials looks installed and fails at launch. Removing needs only the URL.
+        if ($settings['operation'] === 'deploy') {
             if ($effective['consumer_key'] === '') {
-                $ltiErrors['lti_consumer_key'] = 'Enter the LTI consumer key to update existing tools.';
+                $ltiErrors['lti_consumer_key'] = 'Enter the LTI consumer key.';
             }
             if ($effective['consumer_secret'] === '') {
-                $ltiErrors['lti_consumer_secret'] = 'Enter the LTI shared secret to update existing tools.';
+                $ltiErrors['lti_consumer_secret'] = 'Enter the LTI shared secret.';
             }
         }
         if ($ltiErrors !== []) {
@@ -648,6 +652,7 @@ final class CanvasDeployRun
             'update_existing' => $run['settings']['update_existing'] ?? false,
             'account_tool' => $run['account_tool'],
             'account_nav_fixed' => $run['account_nav_fixed'] ?? false,
+            'create_nav' => $run['settings']['create_nav'] ?? false,
         ], $this->sisInspector);
 
         $delay = $run['settings']['course_delay_ms'] / 1000;
@@ -769,7 +774,7 @@ final class CanvasDeployRun
         $counts += array_fill_keys(['nav_added', 'nav_would_add', 'nav_present', 'nav_not_added'], 0);
         match ($row['nav'] ?? '') {
             'added' => $counts['nav_added']++,
-            'would_add', 'would_try' => $counts['nav_would_add']++,
+            'would_add' => $counts['nav_would_add']++,
             'present' => $counts['nav_present']++,
             'not_added' => $counts['nav_not_added']++,
             default => null,

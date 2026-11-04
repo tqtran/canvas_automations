@@ -92,8 +92,8 @@ started the runs. With it, runs also carry on when every page is closed.
 
 - [ ] Connect with your Canvas token. Choose **one or two courses** and click **Dry run**.
   - [ ] The timers move (Elapsed, Courses checked, Average per course).
-  - [ ] The status says "You can close this tab; the run carries on" (or, without the task,
-        "Keep this page open until it finishes").
+  - [ ] The status ends with "You can close this page" (or, without the task, "Keep this
+        page open").
   - [ ] It ends with "Dry run complete", one result row per course.
 - [ ] Click **View this run's log**. Expect, in order: `canvas_deploy_start`, `run_queued`,
       one or more `run_step` (`"by":"worker"` with the task, `"by":"page"` without),
@@ -101,7 +101,7 @@ started the runs. With it, runs also carry on when every page is closed.
 - [ ] With the task running: start a dry run on several courses, **close the tab**, wait a
       minute, open the page again and connect. **Your runs** shows it; **View** shows its results.
 - [ ] Cancel works: start a dry run on several courses, start a second one from another
-      browser (it shows "Queued: this run will start on its own ... unless you cancel it"),
+      browser (it shows "Queued behind 1 run ... It starts automatically unless you cancel it"),
       click **Cancel this queued run** on the second, then **Cancel** twice under Your runs on
       the first. Both end as cancelled, and each run's log has `run_cancel_requested`.
 - [ ] Real run on **one course**. In Canvas, check that course: the SLO Cloud tab in course

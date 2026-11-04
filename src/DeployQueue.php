@@ -122,7 +122,10 @@ final class DeployQueue
             'counts' => $run['counts'],
             // Known up front for a list of course IDs; a term or account is counted as it goes.
             'remaining' => ($run['phase'] ?? '') === 'ids' ? count($run['ids']) : null,
-            'results' => [],
+            // Result rows live in <id>.rows (one JSON row per line), so the frequent queue
+            // checks only read these small run files. These say how much of it is confirmed.
+            'results_total' => 0,
+            'rows_bytes' => 0,
             'errors' => 0,
             'message' => '',
             'store' => $store,
@@ -164,7 +167,7 @@ final class DeployQueue
             }
             $runKey = $this->runKey($job);
             if ($runKey === null) {
-                $this->finalize($job, 'failed', 'The run could not be read with this server\'s queue key.', null, $by);
+                $this->finalize($job, 'failed', 'This server\'s queue key can\'t read this run. Was the key changed?', null, $by);
                 $this->write($job);
                 return 'stepped';
             }
@@ -177,8 +180,8 @@ final class DeployQueue
             $store = $job['store'];
             $engine = ($this->engine)($store);
             try {
-                $batch = $engine->batch($id, $runKey, count($job['results']), $timeTarget, $hardDeadline);
-                array_push($job['results'], ...array_slice($batch['results'], count($job['results']) - (int)$batch['results_from']));
+                $batch = $engine->batch($id, $runKey, (int)$job['results_total'], $timeTarget, $hardDeadline);
+                $this->appendRows($job, array_slice($batch['results'], (int)$job['results_total'] - (int)$batch['results_from']));
                 $job['store'] = $store;
                 $job['counts'] = $batch['counts'];
                 $job['course_seconds'] = $batch['course_seconds'];
@@ -221,8 +224,8 @@ final class DeployQueue
                 ]);
                 if ($stopping) {
                     $this->finalize($job, 'failed', $fatal && $exception instanceof CanvasApiException
-                        ? 'Canvas refused the token (it may have expired or been deleted): ' . $exception->getMessage()
-                        : 'Stopped after ' . $job['errors'] . ' failed attempts in a row. Last error: ' . $exception->getMessage(), $runKey, $by);
+                        ? 'Canvas refused the token. It may have expired or been deleted.'
+                        : $job['errors'] . ' steps failed in a row. Last error: ' . $exception->getMessage(), $runKey, $by);
                 }
             }
             $job['last_step_at'] = $this->nowInt();
@@ -359,7 +362,7 @@ final class DeployQueue
         if ($job === null) {
             return null;
         }
-        $from = max(0, min($from, count($job['results'])));
+        $from = max(0, min($from, (int)$job['results_total']));
         $active = in_array($job['status'], self::ACTIVE, true);
         $ahead = 0;
         $aheadCourses = 0;
@@ -391,7 +394,7 @@ final class DeployQueue
             'ahead_seconds' => $ahead > 0 && $aheadCourses !== null ? (int)round($aheadSeconds) : null,
             'notes' => $job['notes'],
             'results_from' => $from,
-            'results' => array_slice($job['results'], $from, self::MAX_ROWS_PER_VIEW),
+            'results' => $this->readRows($job, $from, self::MAX_ROWS_PER_VIEW),
             'worker_seen' => $this->workerSeen(),
             'worker_fresh' => $this->workerFresh(),
             // The server's clock, so the page can show elapsed times despite clock differences.
@@ -495,7 +498,7 @@ final class DeployQueue
                 try {
                     $fresh = $this->read($job['id']);
                     if ($fresh !== null && in_array($fresh['status'], self::ACTIVE, true)) {
-                        $this->finalize($fresh, 'expired', 'Nothing moved the queue for 2 hours (no worker running and no page open), so this run was stopped and its token deleted. Start it again; courses already done are skipped.', $this->runKey($fresh), 'maintenance');
+                        $this->finalize($fresh, 'expired', 'Stopped after 2 hours without progress: no worker ran and no page was open. Its token was deleted. Start it again to continue; finished courses are skipped.', $this->runKey($fresh), 'maintenance');
                         $this->write($fresh);
                     }
                 } finally {
@@ -503,7 +506,7 @@ final class DeployQueue
                 }
             } elseif (!$active && $now - $job['finished_at'] > self::KEEP_SECONDS) {
                 $this->log('run_deleted', $job, ['reason' => 'Finished more than 7 days ago']);
-                foreach ([$this->path($job['id']), $this->cancelPath($job['id']), $this->dir . '/' . $job['id'] . '.lock'] as $file) {
+                foreach ([$this->path($job['id']), $this->rowsPath($job['id']), $this->cancelPath($job['id']), $this->dir . '/' . $job['id'] . '.lock'] as $file) {
                     @unlink($file);
                 }
             }
@@ -531,7 +534,7 @@ final class DeployQueue
             'user_name' => $job['owner']['user_name'],
             'settings' => $job['settings'],
             'counts' => $job['counts'],
-            'results_total' => count($job['results']),
+            'results_total' => (int)$job['results_total'],
             'errors' => $job['errors'],
             'message' => $job['message'],
             // This run's average seconds per course, and courses left when that is known.
@@ -697,6 +700,62 @@ final class DeployQueue
     private function path(string $id): string
     {
         return $this->dir . '/' . $id . '.json';
+    }
+
+    private function rowsPath(string $id): string
+    {
+        return $this->dir . '/' . $id . '.rows';
+    }
+
+    /**
+     * Add result rows. Anything past the confirmed size (left by a step that crashed before
+     * saving the run) is cut off first, so a row is never there twice. Called with the run
+     * locked; the run file saved afterwards confirms the new size.
+     */
+    private function appendRows(array &$job, array $rows): void
+    {
+        if ($rows === []) {
+            return;
+        }
+        $handle = @fopen($this->rowsPath($job['id']), 'c');
+        if ($handle === false) {
+            throw new \RuntimeException('Cannot write the results of run ' . $job['id'] . '.');
+        }
+        try {
+            ftruncate($handle, (int)$job['rows_bytes']);
+            fseek($handle, (int)$job['rows_bytes']);
+            foreach ($rows as $row) {
+                fwrite($handle, json_encode($row, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n");
+            }
+            fflush($handle);
+            $job['rows_bytes'] = ftell($handle);
+            $job['results_total'] = (int)$job['results_total'] + count($rows);
+        } finally {
+            fclose($handle);
+        }
+    }
+
+    /** Up to $limit confirmed result rows, starting at row $from. */
+    private function readRows(array $job, int $from, int $limit): array
+    {
+        $handle = @fopen($this->rowsPath($job['id']), 'rb');
+        if ($handle === false) {
+            return [];
+        }
+        $rows = [];
+        try {
+            $index = 0;
+            while ($index < (int)$job['results_total'] && count($rows) < $limit && ftell($handle) < (int)$job['rows_bytes']
+                && ($line = fgets($handle)) !== false) {
+                if ($index++ >= $from) {
+                    $row = json_decode($line, true);
+                    $rows[] = is_array($row) ? $row : [];
+                }
+            }
+        } finally {
+            fclose($handle);
+        }
+        return $rows;
     }
 
     private function cancelPath(string $id): string

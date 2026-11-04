@@ -115,13 +115,13 @@ $allowJobs = static function (array $ids) use (&$sessionJobs): void {
 $jobId = (string)($_POST['job_id'] ?? '');
 $needJob = static function () use ($jobId, &$sessionJobs): ?array {
     if (!DeployQueue::validId($jobId) || !in_array($jobId, $sessionJobs, true)) {
-        return ['status' => 403, 'body' => ['ok' => false, 'error' => 'job_forbidden', 'message' => 'This run was not started from this browser. Connect with the Canvas token that started it to see it.']];
+        return ['status' => 403, 'body' => ['ok' => false, 'error' => 'job_forbidden', 'message' => 'Connect with the Canvas account that started this run to see it.']];
     }
     return null;
 };
 $jobReply = static function (?array $view): array {
     return $view === null
-        ? ['status' => 404, 'body' => ['ok' => false, 'error' => 'job_missing', 'message' => 'This run is no longer on the server (finished runs are kept for 7 days).']]
+        ? ['status' => 404, 'body' => ['ok' => false, 'error' => 'job_missing', 'message' => 'This run is gone. Finished runs are kept for 7 days.']]
         : ['status' => 200, 'body' => ['ok' => true] + $view];
 };
 

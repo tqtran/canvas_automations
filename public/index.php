@@ -110,7 +110,7 @@ $cdWorkerFresh = $queue->workerFresh();
 </div>
 <div class="app-content">
 <div class="container-fluid">
-<p class="lead">Install the SLO Cloud LTI 1.1 tool in your Canvas courses. Connect with your Canvas API token, then choose the courses. Only what a course is missing is added, so this can be run again at any time.</p>
+<p class="lead">Install the SLO Cloud LTI 1.1 tool in your Canvas courses. Connect with your Canvas token, pick courses, and run. It's safe to run again: courses only get what they're missing.</p>
 
 <div class="row g-4">
     <div class="col-xl-8">
@@ -128,7 +128,7 @@ $cdWorkerFresh = $queue->workerFresh();
                             <input class="btn-check" type="radio" name="operation" id="cdOpRemove" value="remove">
                             <label class="btn btn-outline-danger" for="cdOpRemove"><i class="bi bi-trash me-1" aria-hidden="true"></i>Remove SLO Cloud</label>
                         </div>
-                        <div class="form-text" id="cdOpHelp">Removing deletes the course navigation tool and any module link to it. An emptied, unpublished module with the module name set below is deleted too. A tool installed at the account level is reported, not removed.</div>
+                        <div class="form-text" id="cdOpHelp">Remove deletes the course tool and its module link, and the module itself if that leaves it empty and unpublished. Account-level tools are reported, not removed.</div>
                     </fieldset>
                     <hr>
                     <div class="form-check mb-2">
@@ -136,8 +136,8 @@ $cdWorkerFresh = $queue->workerFresh();
                         <label class="form-check-label" for="cdLtiOwn">Enter the SLO Cloud LTI settings for this run</label>
                     </div>
                     <p class="form-text" id="cdLtiHelp"><?= $cdServerLti
-                        ? 'Not needed if SLO Cloud is already installed in these courses, or to use the settings saved on this server. Tick it to type your own. They are used for this run only and are never saved.'
-                        : 'Installing needs the launch URL, consumer key and shared secret; removing needs only the launch URL. They are used for this run only and are never saved.' ?></p>
+                        ? 'Leave unticked to use the settings saved on this server. Tick to enter your own for this run. Nothing is saved.'
+                        : 'Install needs all three. Remove needs only the launch URL. Nothing is saved.' ?></p>
                     <div id="cdLtiFields" class="<?= $cdServerLti ? 'd-none' : '' ?>">
                     <div class="mb-3">
                         <label for="cdLtiUrl" class="form-label">LTI launch URL</label>
@@ -184,7 +184,7 @@ $cdWorkerFresh = $queue->workerFresh();
                         <label for="cdToken" class="form-label">Canvas API token</label>
                         <input type="password" class="form-control" id="cdToken" name="canvas_token" autocomplete="off" spellcheck="false" required
                             aria-describedby="cdTokenHelp cdTokenError">
-                        <div id="cdTokenHelp" class="form-text">Create one in Canvas under Account &gt; Settings &gt; New Access Token. A teacher token can deploy to the courses you teach; a Canvas account admin token also unlocks whole terms and accounts. It is never saved. After you connect it stays in this page so you can run again; Log out, closing or reloading the page forgets it, and during a run the server keeps only an encrypted copy, deleted when the run ends.</div>
+                        <div id="cdTokenHelp" class="form-text">In Canvas: Account &gt; Settings &gt; New Access Token. A teacher token covers your courses. An admin token also covers whole terms. The token isn't saved: it stays in this page until you log out or reload. During a run the server keeps an encrypted copy, deleted when the run ends.</div>
                         <div id="cdTokenError" class="invalid-feedback"></div>
                     </div>
                     <button type="button" class="btn btn-primary" id="cdTestConnection">Connect and list my courses</button>
@@ -215,7 +215,7 @@ $cdWorkerFresh = $queue->workerFresh();
                                 <label class="btn btn-outline-secondary" for="cdScopeAll">All, incl. concluded</label>
                             </span>
                         </div>
-                        <p class="form-text d-none" id="cdAdminNote">Term and all-course options are shown because this token is a Canvas account admin for <span id="cdAdminAccounts">an account</span>.</p>
+                        <p class="form-text d-none" id="cdAdminNote">Term and all-course options appear because this token is an admin for <span id="cdAdminAccounts">an account</span>.</p>
                         <div class="mb-3" id="cdPickedWrap">
                             <div class="row g-2 align-items-end mb-2">
                                 <div class="col-md-5">
@@ -281,7 +281,7 @@ $cdWorkerFresh = $queue->workerFresh();
                                 </div>
                                 <div id="cdTermError" class="invalid-feedback"></div>
                             </div>
-                        <p class="form-text mb-0 d-none" id="cdScopeAllNote">All courses in the account are checked; courses that already have SLO Cloud are left alone.</p>
+                        <p class="form-text mb-0 d-none" id="cdScopeAllNote">Checks every course in the account. Courses that already have SLO Cloud are skipped.</p>
                         <div id="cdScopeError" class="invalid-feedback"></div>
                     </fieldset>
                 </div>
@@ -296,13 +296,13 @@ $cdWorkerFresh = $queue->workerFresh();
                         <label for="cdLinkName" class="form-label">Link name</label>
                         <input type="text" class="form-control" id="cdLinkName" name="link_name" maxlength="100" value="<?= $h($cdDefaults['link_name']) ?>" required
                             aria-describedby="cdLinkNameHelp cdLinkNameError">
-                        <div id="cdLinkNameHelp" class="form-text">Shown as the course navigation tab (instructors only) and as the module link title.</div>
+                        <div id="cdLinkNameHelp" class="form-text">The course navigation tab name (instructors only) and the module link title.</div>
                         <div id="cdLinkNameError" class="invalid-feedback"></div>
                     </div>
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="checkbox" id="cdCreateNav" name="create_nav" checked>
                         <label class="form-check-label" for="cdCreateNav">Add a Course Navigation link to SLO Cloud</label>
-                        <div class="form-text">Courses that already have the nav link are left alone. Where SLO Cloud comes from the account without a nav link, a course copy of the tool is added to carry it (needs the key and secret).</div>
+                        <div class="form-text">Skipped where the link exists. If SLO Cloud comes from the account without a nav link, the course gets its own copy to carry it. Needs the key and secret.</div>
                     </div>
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="checkbox" id="cdCreateModule" name="create_module" <?= $cdDefaults['create_module'] ? 'checked' : '' ?>>
@@ -318,18 +318,18 @@ $cdWorkerFresh = $queue->workerFresh();
                     <div class="form-check mb-2" id="cdUpdateWrap">
                         <input class="form-check-input" type="checkbox" id="cdUpdateExisting">
                         <label class="form-check-label" for="cdUpdateExisting">Also update tools that are already in the course to use these credentials</label>
-                        <div class="form-text">Off by default, so a tool that already works is left alone. Course tools with the same launch URL are given this key and secret; a dry run lists which ones. A tool installed at the account level can't be changed from a course.</div>
+                        <div class="form-text">Gives course tools with this launch URL the key and secret above. Leave off to keep working tools as they are. A dry run lists which would change. Account-level tools can't be changed from a course.</div>
                     </div>
                     <div class="form-check mb-2 d-none" id="cdFixAccountNavWrap">
                         <input class="form-check-input" type="checkbox" id="cdFixAccountNav">
                         <label class="form-check-label" for="cdFixAccountNav">Add the nav link to the account's SLO Cloud tool</label>
-                        <div class="form-text">For an account-level SLO Cloud tool that has no Course Navigation link. Adds it once on the account tool, so every course under that account shows SLO Cloud. Needs an account admin token, not the key or secret. A dry run only says whether it would.</div>
+                        <div class="form-text">Adds the nav link once on the account's SLO Cloud tool, so every course under it shows SLO Cloud. Needs an admin token. A dry run only reports it.</div>
                     </div>
                     <div class="mb-0 mt-3">
                         <label for="cdDelay" class="form-label">Delay between courses (milliseconds)</label>
                         <input type="number" class="form-control" id="cdDelay" name="course_delay_ms" min="0" max="10000" step="50" inputmode="numeric"
                             value="<?= $h($cdDefaults['course_delay_ms']) ?>" required aria-describedby="cdDelayHelp cdDelayError">
-                        <div id="cdDelayHelp" class="form-text">A pause between courses (0 to 10,000) to go easy on Canvas during busy hours.</div>
+                        <div id="cdDelayHelp" class="form-text">Pause between courses, 0 to 10,000 ms. Raise it to go easy on Canvas at busy times.</div>
                         <div id="cdDelayError" class="invalid-feedback"></div>
                     </div>
                 </div>
@@ -364,7 +364,7 @@ $cdWorkerFresh = $queue->workerFresh();
                         <button type="button" class="btn btn-outline-primary" id="cdDryRun" <?= $canvasDeploy['ready'] ? '' : 'disabled' ?>>Dry run</button>
                         <button type="button" class="btn btn-primary" id="cdDeploy" <?= $canvasDeploy['ready'] ? '' : 'disabled' ?>>Deploy</button>
                     </div>
-                    <p class="form-text mt-2 mb-0">A dry run checks every course and reports what would change without writing anything to Canvas.</p>
+                    <p class="form-text mt-2 mb-0">A dry run checks every course and reports what would change. It writes nothing to Canvas.</p>
                 </div>
             </div>
             </div>
@@ -386,7 +386,7 @@ $cdWorkerFresh = $queue->workerFresh();
                     <button type="button" class="btn btn-outline-danger" id="cdCancel">Cancel run</button>
                 </div>
                 <ul id="cdRunNotes" class="mt-3 mb-0"></ul>
-                <p class="form-text mb-0 mt-2"><a id="cdRunLog" href="#" target="_blank" rel="noopener">View this run's log</a>: each step, why it stopped, and each course's result.</p>
+                <p class="form-text mb-0 mt-2"><a id="cdRunLog" href="#" target="_blank" rel="noopener">View this run's log</a>: every step and course result.</p>
             </div>
         </div>
 
@@ -449,8 +449,8 @@ $cdWorkerFresh = $queue->workerFresh();
                             <span class="badge text-bg-<?= $cdDataOk ? 'success' : 'danger' ?>"><?= $cdDataOk ? 'Writable' : 'Not writable' ?></span>
                         </div>
                         <div class="small text-break"><?= $cdDataOk
-                            ? 'Runs, the queue key and logs are kept here.'
-                            : $h('This server cannot write to ' . $cdDataDir . '. Give the IIS app pool account (IIS AppPool\<pool name>) Modify permission on it; runs cannot start until then.') ?></div>
+                            ? 'Holds runs, logs and the queue key.'
+                            : $h("Can't write to " . $cdDataDir . '. Give IIS AppPool\<pool name> Modify permission on it. Runs can\'t start until then.') ?></div>
                     </li>
                     <li class="list-group-item px-0">
                         <div class="d-flex justify-content-between gap-3">
@@ -458,9 +458,9 @@ $cdWorkerFresh = $queue->workerFresh();
                             <span class="badge text-bg-<?= $cdWorkerFresh ? 'success' : 'warning' ?>"><?= $cdWorkerFresh ? 'Running' : 'Not running' ?></span>
                         </div>
                         <div class="small text-break"><?= $cdWorkerFresh
-                            ? 'Runs carry on on the server, so you can close this tab during a run.'
-                            : ($cdWorkerSeen === null ? 'The scheduled task has never run. ' : 'Last checked in ' . $h(gmdate('Y-m-d H:i', $cdWorkerSeen)) . ' UTC. ')
-                              . 'Until it does, a run moves only while its page is open. See "Queue worker" in the README.' ?></div>
+                            ? 'Runs continue with the page closed.'
+                            : ($cdWorkerSeen === null ? 'Never run. ' : 'Last ran ' . $h(gmdate('Y-m-d H:i', $cdWorkerSeen)) . ' UTC. ')
+                              . 'Runs only move while this page is open somewhere. See Queue worker in the README.' ?></div>
                     </li>
                 </ul>
             </div>
@@ -473,9 +473,9 @@ $cdWorkerFresh = $queue->workerFresh();
                 <ul class="mb-0">
                     <li>A course navigation tab that only instructors, TAs, and designers can see.</li>
                     <li>Optionally, an unpublished module with a link to SLO Cloud.</li>
-                    <li>Only what a course is missing is added. Where SLO Cloud comes from the account without a nav link, a course copy of the tool carries the nav link.</li>
+                    <li>Courses only get what they're missing. If SLO Cloud comes from the account without a nav link, the course gets its own copy to carry it.</li>
                     <li>Blueprint child courses are skipped; deploy to the Blueprint course and let sync apply it.</li>
-                    <li>Runs wait in a queue on the server and go one at a time, in the order they were started. With the queue worker running, you can close this tab and come back to it under Your runs.</li>
+                    <li>Runs are queued and go one at a time, in order. Follow them in Runs and queue.</li>
                 </ul>
             </div>
         </div>
@@ -497,7 +497,7 @@ $cdWorkerFresh = $queue->workerFresh();
         <div class="callout callout-info small mb-2 py-2" id="cdQueueStatus" role="status" aria-live="polite">Checking the queue…</div>
         <div class="small fw-semibold text-body-secondary px-1 mt-2" id="cdYourRunsHead">Your runs</div>
         <ul class="list-group list-group-flush" id="cdJobsList"></ul>
-        <p class="form-text mb-0 px-1" id="cdYourRunsNote">Runs from this browser, and after you connect, every run started with your Canvas account. Kept for 7 days.</p>
+        <p class="form-text mb-0 px-1" id="cdYourRunsNote">Your runs from the last 7 days.</p>
     </div>
 </section>
 <footer class="app-footer small">
@@ -821,8 +821,8 @@ $cdWorkerFresh = $queue->workerFresh();
     function updateSelectedCount() {
         const shown = new Set(visibleCourses().map((course) => course.id));
         const hidden = Array.from(selected).filter((id) => !shown.has(id)).length;
-        els.selectedCount.textContent = selected.size + ' selected of ' + courses.length + ' courses'
-            + (hidden ? ' (' + hidden + ' not shown by the current filter, still included in the run).' : '.');
+        els.selectedCount.textContent = selected.size + ' of ' + courses.length + ' selected'
+            + (hidden ? '. ' + hidden + ' hidden by the filter but still included.' : '.');
         byId('cdClearHidden').classList.toggle('d-none', hidden === 0);
     }
     byId('cdClearHidden').addEventListener('click', () => {
@@ -1171,29 +1171,30 @@ $cdWorkerFresh = $queue->workerFresh();
 
     function workerText(view) {
         return view.worker_fresh
-            ? 'You can close this tab; the run carries on.'
-            : 'Keep this page open until it finishes; with every page closed, the queue waits.';
+            ? 'You can close this page.'
+            : 'Keep this page open.';
     }
 
     function statusText(view) {
         const counts = view.counts || {};
         const parts = [];
+        const plural = (count, word) => count + ' ' + word + (count === 1 ? '' : 's');
         if (view.cancelling) {
-            parts.push('Cancelling: it stops after the current step. Courses already done stay done.');
+            parts.push('Cancelling after the current step.');
         } else if (view.status === 'queued') {
-            parts.push('Queued: this run will start on its own when its turn comes, unless you cancel it.');
             if (view.ahead) {
                 const size = view.ahead_courses === null
-                    ? ' (a whole term or account, so its size is not known yet)'
-                    : ' (about ' + view.ahead_courses + ' course' + (view.ahead_courses === 1 ? '' : 's') + ' left' + (view.ahead_seconds !== null ? (view.ahead_seconds < 60 ? ', under a minute' : ', roughly ' + Math.round(view.ahead_seconds / 60) + ' min') : '') + ')';
-                parts.push(view.ahead + ' run' + (view.ahead === 1 ? ' is' : 's are') + ' ahead of it' + size + '; runs go one at a time, in the order they were started.');
+                    ? 'size not known yet'
+                    : plural(view.ahead_courses, 'course') + (view.ahead_seconds !== null ? ', ' + roughly(view.ahead_seconds) : '');
+                parts.push('Queued behind ' + plural(view.ahead, 'run') + ': ' + size + '.');
             } else {
-                parts.push('It is next in line.');
+                parts.push('Next in line.');
             }
+            parts.push('It starts automatically unless you cancel it.');
         } else {
-            parts.push('Running: ' + (counts.processed || 0) + ' courses done so far. Cancel stops it after the current step; courses already done stay done.');
+            parts.push('Running. ' + plural(counts.processed || 0, 'course') + ' done.');
         }
-        if (view.errors && view.message) parts.push('The last step failed (' + view.message + '); it is tried again.');
+        if (view.errors && view.message) parts.push('Last step failed: ' + view.message + ' Retrying.');
         parts.push(workerText(view));
         return parts.join(' ');
     }
@@ -1225,15 +1226,14 @@ $cdWorkerFresh = $queue->workerFresh();
 
     const TIMER_ICONS = {
         'Elapsed': ['bi-stopwatch', 'text-bg-primary'],
-        'Waiting for a turn': ['bi-hourglass-split', 'text-bg-secondary'],
-        'Ahead of this run': ['bi-people', 'text-bg-secondary'],
-        'Wait (estimate)': ['bi-hourglass', 'text-bg-warning'],
-        'Courses checked': ['bi-check2-square', 'text-bg-success'],
-        'Average per course': ['bi-speedometer2', 'text-bg-info'],
-        'Time left (estimate)': ['bi-flag', 'text-bg-warning'],
+        'Waiting': ['bi-hourglass-split', 'text-bg-secondary'],
+        'Ahead': ['bi-people', 'text-bg-secondary'],
+        'Est. wait': ['bi-hourglass', 'text-bg-warning'],
+        'Checked': ['bi-check2-square', 'text-bg-success'],
+        'Per course': ['bi-speedometer2', 'text-bg-info'],
+        'Est. time left': ['bi-flag', 'text-bg-warning'],
         'Last progress': ['bi-activity', 'text-bg-secondary'],
-        'This page is working': ['bi-gear', 'text-bg-primary'],
-        'Helping the queue': ['bi-gear', 'text-bg-primary'],
+        'Working': ['bi-gear', 'text-bg-primary'],
         'Checking': ['bi-arrow-repeat', 'text-bg-secondary'],
         'Next check in': ['bi-arrow-repeat', 'text-bg-secondary'],
     };
@@ -1248,25 +1248,25 @@ $cdWorkerFresh = $queue->workerFresh();
         const items = [['Elapsed', clock(elapsed)]];
         // Waiting only while nobody is working on it (not while this page runs its step).
         if (r.status === 'queued' && !r.processed && !(r.requestStarted && r.helping && !r.ahead)) {
-            items.push(['Waiting for a turn', clock(serverNow - r.createdAt)]);
+            items.push(['Waiting', clock(serverNow - r.createdAt)]);
             if (r.ahead) {
-                items.push(['Ahead of this run', r.ahead + ' run' + (r.ahead === 1 ? '' : 's') + (r.aheadCourses !== null && r.aheadCourses !== undefined ? ', ' + r.aheadCourses + ' courses' : '')]);
+                items.push(['Ahead', r.ahead + ' run' + (r.ahead === 1 ? '' : 's') + (r.aheadCourses !== null && r.aheadCourses !== undefined ? ', ' + r.aheadCourses + ' courses' : '')]);
                 if (typeof r.aheadSeconds === 'number') {
-                    items.push(['Wait (estimate)', '~' + clock(Math.max(0, r.aheadSeconds - (Date.now() - r.aheadAt) / 1000))]);
+                    items.push(['Est. wait', '~' + clock(Math.max(0, r.aheadSeconds - (Date.now() - r.aheadAt) / 1000))]);
                 }
             }
         }
         const total = r.remaining !== null && r.remaining !== undefined ? r.processed + r.remaining : null;
-        items.push(['Courses checked', String(r.processed) + (total !== null && r.active ? ' of ' + total : '')]);
+        items.push(['Checked', String(r.processed) + (total !== null && r.active ? ' of ' + total : '')]);
         if (r.processed) {
             const each = elapsed / r.processed;
-            items.push(['Average per course', shortSeconds(each)]);
-            if (r.active && r.remaining) items.push(['Time left (estimate)', '~' + clock(r.remaining * each)]);
+            items.push(['Per course', shortSeconds(each)]);
+            if (r.active && r.remaining) items.push(['Est. time left', '~' + clock(r.remaining * each)]);
         }
         if (r.active) {
             if (r.lastStepAt) items.push(['Last progress', clock(serverNow - r.lastStepAt) + ' ago']);
             if (r.requestStarted) {
-                items.push([r.helping ? (r.ahead ? 'Helping the queue' : 'This page is working') : 'Checking', clock((Date.now() - r.requestStarted) / 1000)]);
+                items.push([r.helping ? 'Working' : 'Checking', clock((Date.now() - r.requestStarted) / 1000)]);
             } else if (r.nextCheck) {
                 items.push(['Next check in', Math.max(0, Math.ceil((r.nextCheck - Date.now()) / 1000)) + ' s']);
             }
@@ -1361,7 +1361,7 @@ $cdWorkerFresh = $queue->workerFresh();
                 mine.requestStarted = 0;
                 failures++;
                 mine.nextCheck = Date.now() + Math.min(15000, 2000 * failures);
-                els.runError.textContent = 'Lost contact with the server (' + (error.message || 'no reply') + '). The run is kept on the server; trying again…';
+                els.runError.textContent = 'Lost contact with the server. Retrying… The run is safe on the server.';
                 els.runError.classList.remove('d-none');
                 await sleep(Math.min(15000, 2000 * failures));
                 continue;
@@ -1388,11 +1388,12 @@ $cdWorkerFresh = $queue->workerFresh();
             let message;
             if (current.status === 'cancelled') {
                 message = checked
-                    ? 'Cancelled after ' + checked + ' courses. Those courses keep their changes; the rest were not touched. Review the results below or download the CSV.'
-                    : 'Cancelled before it started. Nothing was changed in Canvas.';
+                    ? 'Cancelled after ' + checked + ' courses. Those keep their changes.'
+                    : 'Cancelled before it started. Nothing changed in Canvas.';
             } else {
-                message = (current.status === 'done' ? 'Finished: ' : 'Stopped after ') + checked + ' courses checked. '
-                    + (current.message ? current.message + ' ' : '') + 'Review the results below or download the CSV.';
+                message = current.status === 'done'
+                    ? 'Done. ' + checked + ' courses checked.'
+                    : 'Stopped after ' + checked + ' courses. ' + (current.message || '');
             }
             endRun(titles[current.status] || label + ' ended', message);
             return;
@@ -1408,7 +1409,7 @@ $cdWorkerFresh = $queue->workerFresh();
     els.cancel.addEventListener('click', async () => {
         if (!run || !run.active) return;
         els.cancel.disabled = true;
-        els.progressStatus.textContent = run.status === 'queued' ? 'Cancelling: it will not run.' : 'Cancelling: it stops after the current step. Courses already done stay done.';
+        els.progressStatus.textContent = run.status === 'queued' ? 'Cancelling.' : 'Cancelling after the current step.';
         try {
             await post('job_cancel', { job_id: run.jobId });
         } catch (error) {
@@ -1430,7 +1431,7 @@ $cdWorkerFresh = $queue->workerFresh();
     }
 
     const STATUS_BADGE = {
-        queued: ['Queued: runs unless cancelled', 'text-bg-secondary'], running: ['Running', 'text-bg-primary'], done: ['Done', 'text-bg-success'],
+        queued: ['Queued', 'text-bg-secondary'], running: ['Running', 'text-bg-primary'], done: ['Done', 'text-bg-success'],
         cancelled: ['Cancelled', 'text-bg-warning'], failed: ['Stopped', 'text-bg-danger'], expired: ['Expired', 'text-bg-warning'],
     };
 
@@ -1480,7 +1481,7 @@ $cdWorkerFresh = $queue->workerFresh();
 
     // The whole queue, for everyone: counts only.
     let queueStatus = null;
-    const roughly = (seconds) => (seconds < 60 ? 'under a minute' : 'roughly ' + Math.round(seconds / 60) + ' min');
+    const roughly = (seconds) => (seconds < 60 ? 'under 1 min' : 'about ' + Math.round(seconds / 60) + ' min');
 
     function renderPanelSummary() {
         const mine = jobsCache.filter((job) => DeployActive.includes(job.status)).length;
@@ -1499,12 +1500,14 @@ $cdWorkerFresh = $queue->workerFresh();
         box.classList.toggle('callout-info', !!q.runs);
         const lines = [];
         if (!q.runs) {
-            lines.push(['Queue is empty.', 'A new run starts right away.']);
+            lines.push(['Queue is empty.', 'New runs start right away.']);
         } else {
-            let size = 'about ' + q.courses + ' course' + (q.courses === 1 ? '' : 's');
-            if (q.unknown_runs) size += (q.courses ? ', plus ' : ' and ') + q.unknown_runs + ' whole term or account run' + (q.unknown_runs === 1 ? '' : 's') + ' of unknown size';
-            if (!q.unknown_runs || q.courses) size += ', ' + roughly(q.seconds) + (q.unknown_runs ? ' for the known part' : '');
-            lines.push([q.runs + ' run' + (q.runs === 1 ? '' : 's') + ' in the queue', '(' + size + '). New runs go after ' + (q.runs === 1 ? 'it' : 'them') + ', one at a time, in the order they were started.']);
+            const parts = [];
+            if (q.courses || !q.unknown_runs) parts.push(q.courses + ' course' + (q.courses === 1 ? '' : 's'));
+            if (q.unknown_runs) parts.push(q.unknown_runs + ' full term' + (q.unknown_runs === 1 ? '' : 's'));
+            const time = q.unknown_runs ? '' : ', ' + roughly(q.seconds);
+            lines.push([q.runs + ' run' + (q.runs === 1 ? '' : 's') + ' queued.', parts.join(' + ') + time + '.']);
+            lines.push(['', 'New runs join the end of the line.']);
         }
         box.replaceChildren(...lines.map(([bold, rest], index) => {
             const p = document.createElement('div');

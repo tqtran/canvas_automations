@@ -818,6 +818,22 @@ $check(count($queue->owned('https://canvas.test', 1)) === 2 && $queue->owned('ht
     'Runs were not listed by their Canvas owner only.');
 $check(count($queue->view($first['id'], 2)['results']) === 1, 'A view did not start at the requested row.');
 
+// Result rows live in their own file, not in the run file the queue checks keep reading.
+$check(!str_contains((string)file_get_contents($queueDir . '/' . $first['id'] . '.json'), '"course_id"')
+    && count(file($queueDir . '/' . $first['id'] . '.rows')) === 3, 'Result rows were kept in the run file instead of the rows file.');
+
+// A step that wrote rows but crashed before saving the run leaves extra rows behind; the next
+// step cuts them off, so no course appears twice.
+$crashy = $enqueue(['scope' => 'course', 'scope_value' => '1001,1002,1003']);
+$queue->step($crashy['id'], 0.1, 10.0, 'test');
+file_put_contents($queueDir . '/' . $crashy['id'] . '.rows', json_encode(['course_id' => 1002, 'left_over' => true]) . "\n", FILE_APPEND);
+for ($i = 0; $i < 10 && $queue->view($crashy['id'])['status'] !== 'done'; $i++) {
+    $queue->step($crashy['id'], 0.1, 10.0, 'test');
+}
+$crashRows = $queue->view($crashy['id'])['results'];
+$check(count($crashRows) === 3 && array_column($crashRows, 'course_id') === array_unique(array_column($crashRows, 'course_id'))
+    && !in_array(true, array_column($crashRows, 'left_over'), true), 'Rows left by a crashed step were shown or duplicated: ' . json_encode(array_column($crashRows, 'course_id')));
+
 // Cancel: a run nobody is stepping stops at once and loses its token.
 $cancelled = $enqueue(['scope' => 'course', 'scope_value' => '1005']);
 $queue->cancel($cancelled['id']);
@@ -846,7 +862,8 @@ $staleEnd = array_values(array_filter($eventsFor($stale['id']), static fn(array 
 $check(($staleEnd['status'] ?? '') === 'expired' && ($staleEnd['by'] ?? '') === 'maintenance' && str_contains((string)($staleEnd['reason'] ?? ''), '2 hours'), 'An expiry was not logged with its reason.');
 $clock->now += DeployQueue::KEEP_SECONDS + 60;
 $queue->maintain();
-$check(!is_file($queueDir . '/' . $first['id'] . '.json') && !is_file($queueDir . '/' . $stale['id'] . '.json'), 'Old finished runs were not deleted.');
+$check(!is_file($queueDir . '/' . $first['id'] . '.json') && !is_file($queueDir . '/' . $first['id'] . '.rows') && !is_file($queueDir . '/' . $stale['id'] . '.json'),
+    'Old finished runs (or their result rows) were not deleted.');
 $check(in_array('run_deleted', array_column($eventsFor($first['id']), 0), true), 'Deleting an old run was not logged.');
 
 // A wrong queue key cannot read the run keys: the run stops instead of guessing.

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../src/CanvasDeployRun.php';
+require_once __DIR__ . '/../src/DeployQueue.php';
 require_once __DIR__ . '/fixtures/FakeCanvas.php';
 
 use CanvasAutomations\CanvasApiException;
@@ -10,6 +11,8 @@ use CanvasAutomations\CanvasDeadlineExceeded;
 use CanvasAutomations\CanvasDeployRun;
 use CanvasAutomations\CanvasLtiDeployer;
 use CanvasAutomations\CanvasTransport;
+use CanvasAutomations\DeployQueue;
+use CanvasAutomations\Encryption;
 
 $failures = [];
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -694,6 +697,87 @@ $check($service->dispatch('test_connection', $settings())['body']['is_admin'] ==
 
 $prerequisites = CanvasDeployRun::prerequisites(['launch_url' => 'http://slo.example.edu/lti/launch.php', 'consumer_key' => '', 'consumer_secret' => 's']);
 $check(!$prerequisites[0]['ok'] && !$prerequisites[1]['ok'] && $prerequisites[2]['ok'], 'Prerequisites do not require an https launch URL and a consumer key.');
+
+// The shared queue: runs from several people take turns, a worker finishes them without a
+// browser, and the token and keys are deleted when a run ends.
+$queueDir = $lockRoot . '/queue';
+$clock = new FakeClock();
+$canvas = new FakeCanvas(FakeCanvas::scenario(['fresh_courses' => 0]), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
+$queueEngine = static fn(array &$store): CanvasDeployRun => $newService($store, $canvas, $clock, 0)->forQueue();
+$queue = new DeployQueue($queueDir, Encryption::generateKey(), $queueEngine, $clock, [$clock, 'sleep']);
+$enqueue = static function (array $extra) use ($queueEngine, $queue, $settings): array {
+    $store = [];
+    $started = $queueEngine($store)->dispatch('run_start', $settings($extra));
+    return $started['status'] === 200 ? $queue->create($store, $started['body']) : ['error' => $started['body']];
+};
+$first = $enqueue(['scope' => 'course', 'scope_value' => '1001,1002,1003']);
+$second = $enqueue(['scope' => 'course', 'scope_value' => '1004,1008', 'dry_run' => '1']);
+$check(isset($first['id'], $second['id']), 'Two runs could not be queued side by side: ' . json_encode([$first['error'] ?? null, $second['error'] ?? null]));
+$check(!str_contains((string)file_get_contents($queueDir . '/' . $first['id'] . '.json'), FakeCanvas::TOKEN), 'The queue file holds the Canvas token in the clear.');
+$check($queue->view($first['id'])['status'] === 'queued' && $queue->view($first['id'])['other_runs'] === 1, 'A queued run did not say another run is in the queue.');
+
+// A step that another step holds is refused, not run twice.
+$held = fopen($queueDir . '/' . $first['id'] . '.lock', 'c');
+flock($held, LOCK_EX);
+$check($queue->step($first['id'], 5.0, 10.0) === 'busy', 'A run being stepped could be stepped again at the same time.');
+flock($held, LOCK_UN);
+fclose($held);
+
+// Only one worker at a time.
+$heldWorker = fopen($queueDir . '/worker.lock', 'c');
+flock($heldWorker, LOCK_EX);
+$check($queue->work(30.0, 5.0, 10.0)['worker'] === 'busy', 'A second worker ran while one was running.');
+flock($heldWorker, LOCK_UN);
+fclose($heldWorker);
+$check(!$queue->workerFresh(), 'The worker counted as running before it ever ran.');
+
+$summary = $queue->work(120.0, 5.0, 10.0);
+$check($summary['worker'] === 'ran' && $queue->workerFresh(), 'The worker did not run: ' . json_encode($summary));
+foreach ([[$first, 3], [$second, 2]] as [$job, $courses]) {
+    $view = $queue->view($job['id']);
+    $raw = json_decode((string)file_get_contents($queueDir . '/' . $job['id'] . '.json'), true);
+    $check($view['status'] === 'done' && $view['counts']['processed'] === $courses && $view['results_total'] === $courses,
+        'A queued run did not finish with one row per course: ' . json_encode([$view['status'], $view['counts']['processed'] ?? null, $view['results_total']]));
+    $check($raw['store'] === null && $raw['run_key'] === null, 'A finished run kept its token or key.');
+}
+$check(count($canvas->state['courses'][1001]['tools']) === 1 && $canvas->state['courses'][1008]['tools'] === [], 'The worker did not deploy the real run, or wrote during the dry run.');
+$check(count($queue->owned('https://canvas.test', 1)) === 2 && $queue->owned('https://canvas.test', 2) === [] && $queue->owned('https://other.test', 1) === [],
+    'Runs were not listed by their Canvas owner only.');
+$check(count($queue->view($first['id'], 2)['results']) === 1, 'A view did not start at the requested row.');
+
+// Cancel: a run nobody is stepping stops at once and loses its token.
+$cancelled = $enqueue(['scope' => 'course', 'scope_value' => '1005']);
+$queue->cancel($cancelled['id']);
+$raw = json_decode((string)file_get_contents($queueDir . '/' . $cancelled['id'] . '.json'), true);
+$check($raw['status'] === 'cancelled' && $raw['store'] === null, 'A cancelled run kept going or kept its token.');
+
+// A run nothing moves for two hours expires; finished runs go after seven days.
+$stale = $enqueue(['scope' => 'course', 'scope_value' => '1009']);
+$clock->now += DeployQueue::STALE_SECONDS + 60;
+$queue->maintain();
+$raw = json_decode((string)file_get_contents($queueDir . '/' . $stale['id'] . '.json'), true);
+$check($raw['status'] === 'expired' && $raw['store'] === null && $raw['run_key'] === null, 'A stale run did not expire, or kept its token.');
+$clock->now += DeployQueue::KEEP_SECONDS + 60;
+$queue->maintain();
+$check(!is_file($queueDir . '/' . $first['id'] . '.json') && !is_file($queueDir . '/' . $stale['id'] . '.json'), 'Old finished runs were not deleted.');
+
+// A wrong queue key cannot read the run keys: the run stops instead of guessing.
+$orphan = $enqueue(['scope' => 'course', 'scope_value' => '1010']);
+$otherKey = new DeployQueue($queueDir, Encryption::generateKey(), $queueEngine, $clock, [$clock, 'sleep']);
+$check($otherKey->step($orphan['id'], 5.0, 10.0) === 'stepped' && $otherKey->view($orphan['id'])['status'] === 'failed', 'A run was not stopped when its key could not be read.');
+
+// The queue key is generated once and reused.
+$keyDir = $lockRoot . '/keys';
+$made = DeployQueue::key('', $keyDir);
+$check(preg_match('/^[0-9a-f]{64}$/', $made) === 1 && DeployQueue::key('', $keyDir) === $made && DeployQueue::key(str_repeat('ab', 32), $keyDir) === str_repeat('ab', 32),
+    'The queue key was not generated once, or a configured key was not used.');
+
+foreach (glob($queueDir . '/*') ?: [] as $file) {
+    @unlink($file);
+}
+@rmdir($queueDir);
+array_map('unlink', glob($keyDir . '/*') ?: []);
+@rmdir($keyDir);
 
 array_map('unlink', glob($lockRoot . '/*') ?: []);
 @rmdir($lockRoot);

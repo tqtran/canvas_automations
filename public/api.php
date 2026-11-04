@@ -4,7 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../src/bootstrap.php';
 
 use CanvasAutomations\CanvasClient;
-use CanvasAutomations\CanvasDeployRun;
+use CanvasAutomations\DeployQueue;
 
 // No login: the Canvas token is the credential, and Canvas decides what it may do.
 header('Content-Type: application/json; charset=UTF-8');
@@ -98,26 +98,27 @@ $lti = $sameCanvas ? [
     'consumer_secret' => $appConfig['lti.consumer_secret'],
 ] : ['launch_url' => '', 'consumer_key' => '', 'consumer_secret' => ''];
 
-$store = is_array($_SESSION['canvas_deploy'] ?? null) ? $_SESSION['canvas_deploy'] : [];
-$batchRunId = $store['run']['id'] ?? null;
-if ($action === 'run_batch' || $action === 'course_flags') {
-    // These talk to Canvas for several seconds. Release the session lock so other
-    // requests (and parallel flag checks) are not blocked meanwhile.
-    session_write_close();
-}
-$service = new CanvasDeployRun(
-    $store,
-    $lti,
-    $appConfig['data_dir'],
-    0,
-    null,
-    static function (string $event, array $data) use ($audit): void {
-        $audit($event, $data);
-    },
-    static function (string $message, array $context): void {
-        error_log('canvas_automations: ' . $message . ' ' . json_encode($context, JSON_UNESCAPED_SLASHES));
+// Runs live in the shared queue (src/DeployQueue.php); this browser session may see the
+// runs it started, and those of a Canvas user it has connected as.
+$store = [];
+$service = $makeEngine($store, $lti);
+$sessionJobs = array_values(array_filter((array)($_SESSION['canvas_jobs'] ?? []), [DeployQueue::class, 'validId']));
+$allowJobs = static function (array $ids) use (&$sessionJobs): void {
+    $sessionJobs = array_slice(array_values(array_unique(array_merge($ids, $sessionJobs))), 0, 50);
+    $_SESSION['canvas_jobs'] = $sessionJobs;
+};
+$jobId = (string)($_POST['job_id'] ?? '');
+$needJob = static function () use ($jobId, &$sessionJobs): ?array {
+    if (!DeployQueue::validId($jobId) || !in_array($jobId, $sessionJobs, true)) {
+        return ['status' => 403, 'body' => ['ok' => false, 'error' => 'job_forbidden', 'message' => 'This run was not started from this browser. Connect with the Canvas token that started it to see it.']];
     }
-);
+    return null;
+};
+$jobReply = static function (?array $view): array {
+    return $view === null
+        ? ['status' => 404, 'body' => ['ok' => false, 'error' => 'job_missing', 'message' => 'This run is no longer on the server (finished runs are kept for 7 days).']]
+        : ['status' => 200, 'body' => ['ok' => true] + $view];
+};
 
 // Throttle repeated rejected tokens per address so this open endpoint cannot be used to
 // guess Canvas tokens.
@@ -137,24 +138,76 @@ if (is_file($throttleFile)) {
     }
 }
 
-$response = $action === 'save_defaults'
-    ? ['status' => 404, 'body' => ['ok' => false, 'error' => 'unknown_action', 'message' => 'Unknown action.']]
-    : $service->dispatch($action, $_POST);
+switch ($action) {
+    case 'run_start':
+        // The engine checks the token and settings and sets the run up; the queue then owns it.
+        $queue->maintain();
+        $response = $service->dispatch('run_start', $_POST);
+        if ($response['status'] === 200) {
+            try {
+                $job = $queue->create($store, $response['body']);
+                $allowJobs([$job['id']]);
+                $accountTool = (bool)($response['body']['account_tool'] ?? false);
+                // The run key stays on the server now; the page only gets the run id.
+                $response = $jobReply($queue->view($job['id']));
+                $response['body']['account_tool'] = $accountTool;
+            } catch (\Throwable $exception) {
+                error_log('canvas_automations: queue failed ' . $exception->getMessage());
+                $response = ['status' => 500, 'body' => ['ok' => false, 'error' => 'queue_unavailable', 'message' => 'The run could not be queued: ' . $exception->getMessage()]];
+            }
+        }
+        break;
+    case 'job_status':
+        if (($response = $needJob()) !== null) {
+            break;
+        }
+        $helped = false;
+        // No worker has checked in lately: this page moves its own run along in a short
+        // step that fits well under a gateway's 20-second limit.
+        if (($_POST['help'] ?? '') === '1' && !$queue->workerFresh()) {
+            session_write_close();
+            $helped = $queue->step($jobId, 8.0, 14.0) === 'stepped';
+        }
+        $response = $jobReply($queue->view($jobId, (int)($_POST['from'] ?? 0)));
+        $response['body']['helped'] = $helped;
+        break;
+    case 'job_cancel':
+        if (($response = $needJob()) !== null) {
+            break;
+        }
+        $queue->cancel($jobId);
+        $response = $jobReply($queue->view($jobId));
+        break;
+    case 'my_jobs':
+        // Runs this Canvas user started from any browser.
+        $response = $service->dispatch('test_connection', $_POST);
+        if ($response['status'] === 200) {
+            $mine = $queue->owned((string)$response['body']['origin'], (int)$response['body']['user_id']);
+            $allowJobs(array_column($mine, 'id'));
+            $response = ['status' => 200, 'body' => ['ok' => true, 'jobs' => $mine, 'worker_seen' => $queue->workerSeen()]];
+        }
+        break;
+    case 'session_jobs':
+        $response = ['status' => 200, 'body' => ['ok' => true, 'jobs' => $queue->summaries($sessionJobs), 'worker_seen' => $queue->workerSeen()]];
+        break;
+    case 'test_connection':
+    case 'terms':
+    case 'courses':
+    case 'course_flags':
+        if ($action === 'course_flags') {
+            // Talks to Canvas for several seconds and saves nothing; don't hold the session.
+            session_write_close();
+        }
+        $response = $service->dispatch($action, $_POST);
+        break;
+    default:
+        $response = ['status' => 404, 'body' => ['ok' => false, 'error' => 'unknown_action', 'message' => 'Unknown action.']];
+}
 if (($response['body']['canvas_status'] ?? 0) === 401) {
     $failures[] = time();
     if (is_dir(dirname($throttleFile)) || @mkdir(dirname($throttleFile), 0700, true)) {
         @file_put_contents($throttleFile, json_encode($failures), LOCK_EX);
     }
-}
-if ($action === 'run_batch') {
-    session_start();
-    // Write back only if no other tab replaced or ended this run meanwhile.
-    if (($_SESSION['canvas_deploy']['run']['id'] ?? null) === $batchRunId) {
-        $_SESSION['canvas_deploy'] = $store;
-    }
-} elseif ($action !== 'course_flags') {
-    // course_flags only reads Canvas, so it has nothing to save.
-    $_SESSION['canvas_deploy'] = $store;
 }
 if ($response['status'] >= 400) {
     $logFailure($response['status'], $response['body']);

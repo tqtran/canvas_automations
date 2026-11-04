@@ -10,8 +10,15 @@ A Canvas account-admin token also gets the term / all active / all courses optio
 - Dry run first: it reports what would change and writes nothing.
 - Courses that already have the tool are left alone, unless "update tools that are already
   in the course" is ticked, which gives them the key and secret of this run.
-- The token stays in the browser tab. The server keeps it only encrypted for the length of
-  a run, with the key held by the browser. It is never written to disk or the log.
+- Runs go into a shared queue on the server and take turns, so several people can run at
+  once. A scheduled worker moves them along; while no worker is running, the page watching a
+  run moves it in short steps instead (under 15 seconds each, inside a gateway's 20-second
+  limit). With the worker running, the tab can be closed: connecting again with the same
+  Canvas token lists that person's runs. Finished runs are kept for 7 days.
+- The token stays in the browser tab, and on the server only encrypted for the length of a
+  run: with a key of its own, which is in turn encrypted with the queue key. Both are
+  deleted when the run ends, and a run nothing moves for 2 hours is ended. The token is
+  never written to the log.
 - People enter their own Canvas URL (prefilled from the config). It must be https, and a
   host that resolves to a private or internal address is refused, so the server cannot be
   used to reach its own network. `canvas_allowed_hosts` can limit it further.
@@ -35,9 +42,35 @@ PHP 8.2 or newer with the `curl` or `openssl` extension, and `mbstring`.
 3. Make `var/` (or `data_dir`) writable by the web server.
 4. Set `CANVAS_AUTOMATIONS_ENV=production` in production. Plain http is then refused even for
    loopback Canvas URLs.
-5. On IIS, keep `public/web.config`. It sets `httpErrors existingResponse="PassThrough"` so
+5. Set up the queue worker (below).
+6. On IIS, keep `public/web.config`. It sets `httpErrors existingResponse="PassThrough"` so
    the app's own error messages reach the page; without it IIS replaces them with "The custom
    error module does not recognize this error."
+
+### Queue worker
+
+Have Windows Task Scheduler (or cron) start the worker **every minute**. Each start works
+through the queue for about 45 seconds and exits; if the last one is still going, the new one
+exits at once. Either way works:
+
+- **php.exe (recommended).** Runs outside IIS and the gateway, so no web timeouts apply.
+  Action: `C:\PHP\php.exe`, arguments: `C:\path\to\canvas_automations\bin\worker.php`.
+  Run it as an account that can write to `var/` (or `data_dir`).
+- **A URL.** Set `worker_key` in `config.local.php`, then have the task call the server
+  itself, so the request skips the Azure gateway:
+
+  ```powershell
+  Invoke-WebRequest -UseBasicParsing -Headers @{ 'X-Worker-Key' = '<worker_key>' } https://localhost/cron.php
+  ```
+
+  If the site's certificate does not cover `localhost`, use the name it does cover with a
+  hosts-file entry pointing at 127.0.0.1, or use php.exe instead.
+  `?key=<worker_key>` works too, but ends up in the IIS access log. Each call takes up to
+  about a minute, inside IIS's FastCGI limits.
+
+In Task Scheduler: trigger daily, repeat every 1 minute indefinitely; under Settings, "If the
+task is already running: Do not start a new instance". The page's Server checks card shows
+whether the worker has checked in during the last few minutes.
 
 ### Tests
 

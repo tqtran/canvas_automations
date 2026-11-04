@@ -42,6 +42,8 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
 $h = static fn(mixed $value): string => htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
 $cdDefaults = $canvasDeploy['defaults'];
 $cdScopeValue = (string)$cdDefaults['scope_value'];
+$cdWorkerSeen = $queue->workerSeen();
+$cdWorkerFresh = $queue->workerFresh();
 ?>
 <div class="container my-4">
 <p class="lead">Install the SLO Cloud LTI 1.1 tool in your Canvas courses. Connect with your Canvas API token, then choose the courses. Only what a course is missing is added, so this can be run again at any time.</p>
@@ -118,7 +120,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                         <label for="cdToken" class="form-label">Canvas API token</label>
                         <input type="password" class="form-control" id="cdToken" name="canvas_token" autocomplete="off" spellcheck="false" required
                             aria-describedby="cdTokenHelp cdTokenError">
-                        <div id="cdTokenHelp" class="form-text">Create one in Canvas under Account &gt; Settings &gt; New Access Token. A teacher token can deploy to the courses you teach; a Canvas account admin token also unlocks whole terms and accounts. It is never saved. After you connect it stays in this page so you can run again; Log out, closing or reloading the page forgets it, and during a run the server keeps only an encrypted copy until the run ends.</div>
+                        <div id="cdTokenHelp" class="form-text">Create one in Canvas under Account &gt; Settings &gt; New Access Token. A teacher token can deploy to the courses you teach; a Canvas account admin token also unlocks whole terms and accounts. It is never saved. After you connect it stays in this page so you can run again; Log out, closing or reloading the page forgets it, and during a run the server keeps only an encrypted copy, deleted when the run ends.</div>
                         <div id="cdTokenError" class="invalid-feedback"></div>
                     </div>
                     <button type="button" class="btn btn-primary" id="cdTestConnection">Connect and list my courses</button>
@@ -316,7 +318,6 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                 <dl class="row mb-3" id="cdCounts"></dl>
                 <div id="cdRunError" class="alert alert-danger d-none" role="alert"></div>
                 <div class="d-flex flex-wrap gap-2">
-                    <button type="button" class="btn btn-outline-primary d-none" id="cdRetry">Retry</button>
                     <button type="button" class="btn btn-outline-danger" id="cdCancel">Cancel run</button>
                 </div>
                 <ul id="cdRunNotes" class="mt-3 mb-0"></ul>
@@ -360,6 +361,15 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
     </div>
 
     <div class="col-xl-4">
+        <div class="card mb-4 d-none" id="cdJobsCard">
+            <div class="card-header">
+                <h2 class="card-title">Your runs</h2>
+            </div>
+            <div class="card-body py-2">
+                <ul class="list-group list-group-flush" id="cdJobsList"></ul>
+                <p class="form-text mb-0">Runs started from this browser, and after you connect, every run started with your Canvas account. Finished runs are kept for 7 days.</p>
+            </div>
+        </div>
         <div class="card mb-4">
             <div class="card-header">
                 <h2 class="card-title">Server checks</h2>
@@ -376,6 +386,16 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                             <div class="small text-break"><?= $h($check['detail']) ?></div>
                         </li>
                     <?php endforeach; ?>
+                    <li class="list-group-item px-0">
+                        <div class="d-flex justify-content-between gap-3">
+                            <span>Queue worker</span>
+                            <span class="badge text-bg-<?= $cdWorkerFresh ? 'success' : 'warning' ?>"><?= $cdWorkerFresh ? 'Running' : 'Not running' ?></span>
+                        </div>
+                        <div class="small text-break"><?= $cdWorkerFresh
+                            ? 'Runs carry on on the server, so you can close this tab during a run.'
+                            : ($cdWorkerSeen === null ? 'The scheduled task has never run. ' : 'Last checked in ' . $h(gmdate('Y-m-d H:i', $cdWorkerSeen)) . ' UTC. ')
+                              . 'Until it does, a run moves only while its page is open. See "Queue worker" in the README.' ?></div>
+                    </li>
                 </ul>
             </div>
         </div>
@@ -389,7 +409,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                     <li>Optionally, an unpublished module with a link to SLO Cloud.</li>
                     <li>Only what a course is missing is added. Where SLO Cloud comes from the account without a nav link, a course copy of the tool carries the nav link.</li>
                     <li>Blueprint child courses are skipped; deploy to the Blueprint course and let sync apply it.</li>
-                    <li>Keep this tab open during a run. If it closes, run the same selection again to continue.</li>
+                    <li>Runs wait in a shared queue on the server and take turns, so several people can run at once. With the queue worker running, you can close this tab and come back to it under Your runs.</li>
                 </ul>
             </div>
         </div>
@@ -416,7 +436,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
         summary: byId('cdSummaryBody'), formError: byId('cdFormError'),
         dryRun: byId('cdDryRun'), deploy: byId('cdDeploy'),
         progressCard: byId('cdProgressCard'), progressTitle: byId('cdProgressTitle'), progressStatus: byId('cdProgressStatus'),
-        progressBar: byId('cdProgressBar'), counts: byId('cdCounts'), runError: byId('cdRunError'), retry: byId('cdRetry'),
+        progressBar: byId('cdProgressBar'), counts: byId('cdCounts'), runError: byId('cdRunError'), jobsCard: byId('cdJobsCard'), jobsList: byId('cdJobsList'),
         cancel: byId('cdCancel'), runNotes: byId('cdRunNotes'),
         resultsCard: byId('cdResultsCard'), onlyIssues: byId('cdOnlyIssues'), csv: byId('cdDownloadCsv'),
         resultsNote: byId('cdResultsNote'), results: byId('cdResultsBody'),
@@ -901,6 +921,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
             setCourses(listing.courses);
             syncOperation();
             loadFlags();
+            loadJobs('my_jobs', { base_url: els.baseUrl.value.trim(), canvas_token: els.token.value });
             els.afterConnect.classList.remove('d-none');
             els.adminScopes.classList.toggle('d-none', !connectedAdmin);
             byId('cdAdminNote').classList.toggle('d-none', !connectedAdmin);
@@ -1044,87 +1065,183 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
     });
     els.onlyIssues.addEventListener('change', () => { if (run) renderResults(); });
 
-    const beforeUnload = (event) => { event.preventDefault(); event.returnValue = ''; };
+    const runLabel = (r) => (r.dryRun ? 'Dry run' : (r.operation === 'remove' ? 'Removal' : 'Deployment'));
 
     function endRun(title, message) {
-        window.removeEventListener('beforeunload', beforeUnload);
         run.active = false;
-        run.runKey = null;
         els.progressTitle.textContent = title;
         els.progressStatus.textContent = message;
         els.progressBar.classList.add('d-none');
         els.cancel.classList.add('d-none');
-        els.retry.classList.add('d-none');
         lockForm(false);
         els.progressTitle.focus();
+        loadJobs('session_jobs');
     }
 
-    async function closeRun(cancelled) {
-        let counts = run.counts;
-        try {
-            const response = await post(cancelled ? 'run_cancel' : 'run_finish', { run_id: run.runId, run_key: run.runKey });
-            counts = response.counts || counts;
-        } catch (error) {
-            if (error.error !== 'run_missing') run.notes.push('The run ended but could not be closed cleanly: ' + (error.message || 'unknown error'));
-        }
-        if (counts) renderCounts(counts, run.dryRun);
-        const label = run.dryRun ? 'Dry run' : (run.operation === 'remove' ? 'Removal' : 'Deployment');
-        const processed = counts ? counts.processed : run.results.length;
-        endRun(
-            cancelled ? label + ' cancelled' : label + ' complete',
-            (cancelled ? 'Stopped after ' : 'Finished: ') + processed + ' courses checked. Review the results below or download the CSV.'
-        );
+    function workerText(view) {
+        return view.worker_fresh
+            ? 'The server worker is running it, so you can close this tab.'
+            : 'No server worker is running, so this page is moving the run along. Keep it open.';
     }
 
-    async function loop() {
-        els.runError.classList.add('d-none');
-        els.retry.classList.add('d-none');
+    function statusText(view) {
+        const counts = view.counts || {};
+        const parts = [];
+        if (view.cancelling) parts.push('Cancelling…');
+        else if (view.status === 'queued') parts.push('Waiting for its first turn.');
+        else parts.push('Processed ' + (counts.processed || 0) + ' courses so far.');
+        if (view.other_runs) parts.push(view.other_runs + ' other run' + (view.other_runs === 1 ? ' is' : 's are') + ' in the queue, taking turns with this one.');
+        if (view.errors && view.message) parts.push('The last step failed (' + view.message + '); it is tried again.');
+        parts.push(workerText(view));
+        return parts.join(' ');
+    }
+
+    // Follow a queued run until it ends, showing its rows and counts as they arrive. The run
+    // lives on the server; this only watches it (and helps it along when no worker runs).
+    async function follow(view, focus) {
+        const settings = view.settings || {};
+        const mine = { active: true, jobId: view.id, dryRun: !!settings.dry_run, operation: settings.operation || 'deploy', results: [], counts: view.counts || {} };
+        run = mine;
+        els.progressCard.classList.remove('d-none');
+        els.resultsCard.classList.remove('d-none');
         els.progressBar.classList.remove('d-none');
-        while (run && run.active) {
-            if (run.cancelRequested) { await closeRun(true); return; }
-            let batch;
+        els.runError.classList.add('d-none');
+        els.cancel.classList.remove('d-none');
+        els.cancel.disabled = false;
+        els.progressTitle.textContent = runLabel(mine) + (DeployActive.includes(view.status) ? ' in progress' : '');
+        els.progressStatus.textContent = 'Loading…';
+        els.runNotes.replaceChildren(...(view.notes || []).map((note) => {
+            const li = document.createElement('li');
+            li.textContent = note;
+            return li;
+        }));
+        renderCounts(mine.counts, mine.dryRun);
+        renderResults();
+        lockForm(true);
+        if (focus) els.progressTitle.focus();
+        let failures = 0;
+        while (run === mine && mine.active) {
+            let current;
             try {
-                // "received" lets the server resend rows from a reply that never arrived.
-                batch = await post('run_batch', { run_id: run.runId, run_key: run.runKey, received: String(run.results.length) });
+                current = await post('job_status', { job_id: mine.jobId, from: String(mine.results.length), help: '1' });
+                failures = 0;
+                els.runError.classList.add('d-none');
             } catch (error) {
-                if (['run_missing', 'run_key_rejected', 'run_forbidden', 'run_locked'].includes(error.error)) {
-                    endRun('Run stopped', error.message || 'The run is no longer active.');
+                if (run !== mine) return;
+                if (error.error === 'job_forbidden' || error.error === 'job_missing') {
+                    endRun('Run not available', error.message || 'This run cannot be shown.');
                     return;
                 }
-                run.paused = true;
-                els.runError.textContent = (error.message || 'The batch failed.') + ' Retry continues from the same place.';
-                addLogLink(els.runError);
+                // A gateway timeout or dropped connection loses nothing: the run is on the server.
+                failures++;
+                els.runError.textContent = 'Lost contact with the server (' + (error.message || 'no reply') + '). The run is kept on the server; trying again…';
                 els.runError.classList.remove('d-none');
-                els.retry.classList.remove('d-none');
-                els.progressBar.classList.add('d-none');
-                els.progressStatus.textContent = 'Paused after an error.';
-                return;
+                await sleep(Math.min(15000, 2000 * failures));
+                continue;
             }
-            run.counts = batch.counts;
-            const from = typeof batch.results_from === 'number' ? batch.results_from : run.results.length;
-            appendResults(batch.results.slice(Math.max(0, run.results.length - from)));
-            renderCounts(batch.counts, run.dryRun);
-            els.progressStatus.textContent = 'Processed ' + batch.counts.processed + ' courses so far. Last batch: '
-                + batch.processed + ' in ' + (batch.elapsed_ms / 1000).toFixed(1) + ' seconds.';
-            if (batch.done) { await closeRun(false); return; }
-            if (batch.delay_ms > 0) await sleep(batch.delay_ms);
+            if (run !== mine) return;
+            appendResults(current.results.slice(Math.max(0, mine.results.length - current.results_from)));
+            mine.counts = current.counts || {};
+            renderCounts(mine.counts, mine.dryRun);
+            const moreRows = mine.results.length < current.results_total;
+            if (DeployActive.includes(current.status)) {
+                els.progressStatus.textContent = statusText(current);
+                if (!moreRows) await sleep(current.helped ? 300 : 2500);
+                continue;
+            }
+            if (moreRows) continue;
+            const label = runLabel(mine);
+            const titles = { done: label + ' complete', cancelled: label + ' cancelled', failed: label + ' stopped', expired: label + ' expired' };
+            endRun(
+                titles[current.status] || label + ' ended',
+                (current.status === 'done' ? 'Finished: ' : 'Stopped after ') + (mine.counts.processed || 0) + ' courses checked. '
+                    + (current.message ? current.message + ' ' : '') + 'Review the results below or download the CSV.'
+            );
+            return;
+        }
+    }
+    const DeployActive = ['queued', 'running'];
+
+    els.cancel.addEventListener('click', async () => {
+        if (!run || !run.active) return;
+        els.cancel.disabled = true;
+        els.progressStatus.textContent = 'Cancelling…';
+        try {
+            await post('job_cancel', { job_id: run.jobId });
+        } catch (error) {
+            els.cancel.disabled = false;
+            els.runError.textContent = 'Could not cancel: ' + (error.message || 'no reply') + ' Try again.';
+            els.runError.classList.remove('d-none');
+        }
+    });
+
+    // "Your runs": runs started from this browser, plus (after connecting) every run this
+    // Canvas user started anywhere. An unfinished one is followed automatically.
+    function scopeSummary(settings) {
+        if (settings.scope === 'course') {
+            const n = String(settings.scope_value || '').split(',').filter(Boolean).length;
+            return n + ' course' + (n === 1 ? '' : 's');
+        }
+        if (settings.scope === 'term') return 'Term ' + settings.scope_value;
+        return labels.scope[settings.scope] || '';
+    }
+
+    const STATUS_BADGE = {
+        queued: ['Queued', 'text-bg-secondary'], running: ['Running', 'text-bg-primary'], done: ['Done', 'text-bg-success'],
+        cancelled: ['Cancelled', 'text-bg-warning'], failed: ['Stopped', 'text-bg-danger'], expired: ['Expired', 'text-bg-warning'],
+    };
+
+    function renderJobs(jobs) {
+        els.jobsCard.classList.toggle('d-none', !jobs.length);
+        els.jobsList.replaceChildren(...jobs.map((job) => {
+            const settings = job.settings || {};
+            const li = document.createElement('li');
+            li.className = 'list-group-item px-0 d-flex justify-content-between align-items-start gap-2';
+            const text = document.createElement('div');
+            const what = document.createElement('div');
+            what.className = 'fw-semibold';
+            what.textContent = (settings.dry_run ? 'Dry run: ' : '') + (settings.operation === 'remove' ? 'Remove' : 'Install') + ', ' + scopeSummary(settings);
+            const when = document.createElement('div');
+            when.className = 'small text-body-secondary';
+            when.textContent = new Date(job.created_at * 1000).toLocaleString() + ' · ' + ((job.counts || {}).processed || 0) + ' checked'
+                + (job.user_name ? ' · ' + job.user_name : '');
+            text.append(what, when);
+            const side = document.createElement('div');
+            side.className = 'text-end';
+            const [badgeText, badgeClass] = STATUS_BADGE[job.status] || [job.status, 'text-bg-secondary'];
+            const badge = document.createElement('span');
+            badge.className = 'badge ' + badgeClass;
+            badge.textContent = badgeText;
+            const view = document.createElement('button');
+            view.type = 'button';
+            view.className = 'btn btn-link btn-sm p-0 d-block';
+            view.textContent = 'View';
+            view.addEventListener('click', () => openJob(job.id));
+            side.append(badge, view);
+            li.append(text, side);
+            return li;
+        }));
+    }
+
+    async function openJob(id) {
+        try {
+            follow(await post('job_status', { job_id: id, from: '0' }), true);
+        } catch (error) {
+            showAlert(els.connection, 'warning', error.message || 'That run could not be opened.');
         }
     }
 
-    els.retry.addEventListener('click', () => {
-        if (!run || !run.active) return;
-        run.paused = false;
-        els.progressStatus.textContent = 'Retrying…';
-        loop();
-    });
-
-    els.cancel.addEventListener('click', () => {
-        if (!run || !run.active) return;
-        if (run.paused) { closeRun(true); return; }
-        run.cancelRequested = true;
-        els.cancel.disabled = true;
-        els.progressStatus.textContent = 'Cancelling after the current batch…';
-    });
+    async function loadJobs(action, data) {
+        let reply;
+        try {
+            reply = await post(action, data || {});
+        } catch (error) {
+            return;
+        }
+        renderJobs(reply.jobs || []);
+        const unfinished = (reply.jobs || []).find((job) => DeployActive.includes(job.status));
+        if (unfinished && !(run && run.active)) openJob(unfinished.id);
+    }
 
     let confirmingDeploy = false;
     function resetDeployConfirm() {
@@ -1177,23 +1294,8 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                 lti_consumer_key: els.ltiOwn.checked ? els.ltiKey.value.trim() : '',
                 lti_consumer_secret: els.ltiOwn.checked ? els.ltiSecret.value : '',
             }));
-            run = { active: true, runId: started.run_id, runKey: started.run_key, dryRun, operation: settings.operation, results: [], counts: null, notes: [], cancelRequested: false, paused: false };
-            window.addEventListener('beforeunload', beforeUnload);
-            els.progressCard.classList.remove('d-none');
-            els.resultsCard.classList.remove('d-none');
-            els.cancel.classList.remove('d-none');
-            els.cancel.disabled = false;
-            els.progressTitle.textContent = dryRun ? 'Dry run in progress' : (settings.operation === 'remove' ? 'Removal in progress' : 'Deployment in progress');
-            els.progressStatus.textContent = 'Starting…';
-            els.runNotes.replaceChildren(...(started.notes || []).map((note) => {
-                const li = document.createElement('li');
-                li.textContent = note;
-                return li;
-            }));
-            renderCounts({}, dryRun);
-            renderResults();
-            els.progressTitle.focus();
-            await loop();
+            loadJobs('session_jobs');
+            follow(started, true);
         } catch (error) {
             lockForm(false);
             setFormError(error.message || 'The run could not start.');
@@ -1238,6 +1340,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
     form.addEventListener('input', () => { resetDeployConfirm(); renderSummary(); });
     form.addEventListener('change', () => { resetDeployConfirm(); syncScope(); });
     syncScope();
+    loadJobs('session_jobs');
 })();
 </script>
 <!-- /canvas-deploy:view -->

@@ -35,7 +35,8 @@ final class CanvasDeployException extends \RuntimeException
 }
 
 /**
- * Runs a Canvas deployment as a series of short, browser-driven batches.
+ * Runs a Canvas deployment as a series of short batches. The web app keeps runs in the
+ * shared queue (DeployQueue, forQueue()), which calls batch() from the worker or the page.
  *
  * Token protection (split key): the Canvas token is posted once. The server
  * encrypts it with a random per-run key, keeps only the ciphertext in the
@@ -93,6 +94,8 @@ final class CanvasDeployRun
     private ?\Closure $audit;
     private ?\Closure $log;
     private ?\Closure $clientFactory;
+    private bool $installLock = true;
+    private bool $idleExpires = true;
 
     /**
      * @param array $store         session-backed storage for this administrator's run
@@ -124,6 +127,18 @@ final class CanvasDeployRun
                     usleep((int)round($seconds * 1_000_000));
                 }
             };
+    }
+
+    /**
+     * For runs kept in the shared queue (DeployQueue): several runs may exist at once, so
+     * there is no install-wide lock, and a run waiting its turn does not expire here (the
+     * queue expires runs itself).
+     */
+    public function forQueue(): self
+    {
+        $this->installLock = false;
+        $this->idleExpires = false;
+        return $this;
     }
 
     /** @return list<array{key: string, label: string, ok: bool, detail: string}> */
@@ -352,6 +367,7 @@ final class CanvasDeployRun
         return [
             'origin' => $client->origin(),
             'user' => is_array($self) ? (string)($self['name'] ?? '') : '',
+            'user_id' => is_array($self) ? (int)($self['id'] ?? 0) : 0,
             'is_admin' => $accounts !== [],
             'accounts' => array_map(
                 static fn(array $account): array => ['id' => (int)$account['id'], 'name' => (string)($account['name'] ?? '')],
@@ -645,16 +661,25 @@ final class CanvasDeployRun
             'account_tool' => $accountTool,
         ]);
 
-        return ['run_id' => $runId, 'run_key' => $runKey, 'notes' => $notes, 'account_tool' => $accountTool];
+        return [
+            'run_id' => $runId, 'run_key' => $runKey, 'notes' => $notes, 'account_tool' => $accountTool,
+            'origin' => $client->origin(),
+            'canvas_user' => ['id' => is_array($self) ? (int)($self['id'] ?? 0) : 0, 'name' => is_array($self) ? (string)($self['name'] ?? '') : ''],
+        ];
     }
 
     /**
      * $received is how many result rows the page already has. Rows it has not confirmed are
      * sent again, so a reply lost on the way (a proxy timeout, a dropped connection) loses
      * no rows. Without it, every row sent before is taken as received.
+     *
+     * $timeTarget and $hardDeadline (seconds) default to TIME_TARGET and HARD_DEADLINE; the
+     * queue passes shorter ones so a step fits under a gateway's timeout.
      */
-    public function batch(string $runId, string $runKey, ?int $received = null): array
+    public function batch(string $runId, string $runKey, ?int $received = null, ?float $timeTarget = null, ?float $hardDeadline = null): array
     {
+        $timeTarget ??= self::TIME_TARGET;
+        $hardDeadline ??= self::HARD_DEADLINE;
         $started = $this->now();
         $run = &$this->loadRun($runId);
         $token = $this->decryptToken($run, $runKey);
@@ -669,7 +694,7 @@ final class CanvasDeployRun
             $run['results_from'] += $confirmed;
         }
 
-        $client = $this->client($run['settings']['base_url'], $token, $started + self::HARD_DEADLINE);
+        $client = $this->client($run['settings']['base_url'], $token, $started + $hardDeadline);
         unset($token);
         $secret = $run['lti_secret'] === '' ? '' : (new Encryption($runKey))->decrypt((string)$run['lti_secret']);
         $deployer = new CanvasLtiDeployer($client, $run['lti'] + ['consumer_secret' => $secret] + [
@@ -708,7 +733,7 @@ final class CanvasDeployRun
             }
 
             if ($processed > 0 && $delay > 0) {
-                if ($this->now() + $delay >= $started + self::HARD_DEADLINE - 1) {
+                if ($this->now() + $delay >= $started + $hardDeadline - 1) {
                     array_unshift($run['queue'], $item);
                     $stop = 'deadline';
                     break;
@@ -744,7 +769,7 @@ final class CanvasDeployRun
             }
 
             $this->record($run, $row, $results, $processed);
-            if ($this->now() - $started >= self::TIME_TARGET) {
+            if ($this->now() - $started >= $timeTarget) {
                 $stop = 'time_target';
                 break;
             }
@@ -982,7 +1007,7 @@ final class CanvasDeployRun
         if ((int)$run['user_id'] !== $this->userId) {
             throw new CanvasDeployException('This run belongs to another user.', 'run_forbidden', 403);
         }
-        if ($this->nowInt() - (int)$run['touched_at'] > self::IDLE_EXPIRY) {
+        if ($this->idleExpires && $this->nowInt() - (int)$run['touched_at'] > self::IDLE_EXPIRY) {
             $this->closeRun($this->store['run'], 'canvas_deploy_expired');
             throw new CanvasDeployException(
                 'This run expired after 30 minutes without activity. Start a new run; courses already done are skipped.',
@@ -1142,6 +1167,9 @@ final class CanvasDeployRun
 
     private function acquireLock(string $runId): void
     {
+        if (!$this->installLock) {
+            return;
+        }
         $now = $this->nowInt();
         $this->withLock(function (array $holder) use ($runId, $now): array {
             if (($holder['run_id'] ?? '') !== '' && $holder['run_id'] !== $runId
@@ -1159,6 +1187,9 @@ final class CanvasDeployRun
 
     private function touchLock(string $runId): void
     {
+        if (!$this->installLock) {
+            return;
+        }
         $now = $this->nowInt();
         $this->withLock(function (array $holder) use ($runId, $now): array {
             if (($holder['run_id'] ?? '') === $runId) {
@@ -1177,6 +1208,9 @@ final class CanvasDeployRun
 
     private function releaseLock(string $runId): void
     {
+        if (!$this->installLock) {
+            return;
+        }
         $this->withLock(static fn(array $holder): ?array => ($holder['run_id'] ?? '') === $runId ? null : ($holder ?: null));
     }
 }

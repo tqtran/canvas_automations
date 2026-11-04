@@ -8,9 +8,12 @@ require_once __DIR__ . '/CanvasDeployRun.php';
 /**
  * A shared queue of deployment runs, one JSON file per run in $dir.
  *
- * A run moves forward in short steps. Steps come from the scheduled worker (bin/worker.php
- * or public/cron.php), and from the page watching the run when no worker has checked in
- * lately. Each run has its own lock file, so two steps never work on the same run at once.
+ * First come, first served: only the oldest unfinished run is worked on, until it ends;
+ * then the next. It moves forward in short steps (progress is saved after each). Steps
+ * come from the scheduled worker (bin/worker.php or public/cron.php), or, when no worker
+ * has checked in lately, from any open page, which then steps the first run in line, not
+ * necessarily its own. So only one run talks to Canvas at a time. Each run also has its
+ * own lock file, so two steps never work on the same run at once.
  *
  * The Canvas token stays encrypted with the run's own key, as in CanvasDeployRun. That key
  * is kept here encrypted with the queue key, so the worker can continue without the browser.
@@ -19,7 +22,7 @@ require_once __DIR__ . '/CanvasDeployRun.php';
 final class DeployQueue
 {
     public const ACTIVE = ['queued', 'running'];
-    /** A run nothing has moved for this long is ended and its token deleted. */
+    /** If nothing has moved the queue for this long, its unfinished runs are ended and their tokens deleted. */
     public const STALE_SECONDS = 7200;
     /** Finished runs (results only, no token) are kept this long for review and CSV. */
     public const KEEP_SECONDS = 7 * 86400;
@@ -103,6 +106,8 @@ final class DeployQueue
         $run = $store['run'];
         $job = [
             'id' => (string)$run['id'],
+            // Place in line: a counter, so two runs started in the same second keep their order.
+            'seq' => $this->nextSequence(),
             'status' => 'queued',
             'created_at' => $now,
             'last_step_at' => 0,
@@ -115,6 +120,8 @@ final class DeployQueue
             'settings' => self::publicSettings($run['settings']),
             'notes' => array_values((array)($started['notes'] ?? [])),
             'counts' => $run['counts'],
+            // Known up front for a list of course IDs; a term or account is counted as it goes.
+            'remaining' => ($run['phase'] ?? '') === 'ids' ? count($run['ids']) : null,
             'results' => [],
             'errors' => 0,
             'message' => '',
@@ -224,7 +231,8 @@ final class DeployQueue
     }
 
     /**
-     * The worker: take turns stepping every active run until $budget seconds have passed.
+     * The worker: step the first run in line until it ends, then the next, until $budget
+     * seconds have passed.
      * Only one worker runs at a time; a second one returns at once.
      */
     public function work(float $budget, float $timeTarget, float $hardDeadline): array
@@ -245,25 +253,23 @@ final class DeployQueue
         try {
             $this->heartbeat();
             $this->maintain();
+            $misses = 0;
             while (($left = $budget - ($this->now() - $started)) > 1) {
-                $active = array_filter($this->all(), static fn(array $job): bool => in_array($job['status'], self::ACTIVE, true));
-                // Longest-waiting run first, so every run gets turns.
-                usort($active, static fn(array $a, array $b): int => [$a['last_step_at'], $a['created_at']] <=> [$b['last_step_at'], $b['created_at']]);
-                $moved = false;
-                foreach ($active as $job) {
-                    $left = $budget - ($this->now() - $started);
-                    if ($left <= 1) {
-                        break;
-                    }
-                    if ($this->step($job['id'], min($timeTarget, $left), $hardDeadline) === 'stepped') {
-                        $moved = true;
-                        $steps++;
-                        $runs[$job['id']] = true;
-                    }
-                    $this->heartbeat();
+                // Always the first run in line, until it ends.
+                $head = $this->line()[0] ?? null;
+                if ($head === null) {
+                    $ended = 'No runs waiting';
+                    break;
                 }
-                if (!$moved) {
-                    $ended = $active === [] ? 'No runs waiting' : 'Every waiting run was being worked on elsewhere';
+                $result = $this->step($head['id'], min($timeTarget, $left), $hardDeadline);
+                $this->heartbeat();
+                if ($result === 'stepped') {
+                    $misses = 0;
+                    $steps++;
+                    $runs[$head['id']] = true;
+                } elseif ($result === 'busy' || ++$misses > 2) {
+                    // Someone else is stepping the first run; never start the next one alongside it.
+                    $ended = 'The first run in line was being worked on elsewhere';
                     break;
                 }
             }
@@ -276,6 +282,47 @@ final class DeployQueue
             $this->log('worker_run', null, ['budget' => $budget, 'steps' => $steps, 'runs' => count($runs), 'seconds' => round($this->now() - $started, 1), 'ended' => $ended]);
         }
         return ['worker' => 'ran', 'steps' => $steps, 'runs' => count($runs), 'seconds' => round($this->now() - $started, 1)];
+    }
+
+    /**
+     * One step of the first run in line, for a page helping while no worker runs. Returns the
+     * run id it stepped, or null (nothing queued, or the first run is being stepped already:
+     * the next run is never started alongside it).
+     */
+    public function stepNext(float $timeTarget, float $hardDeadline, string $by = 'page'): ?string
+    {
+        $head = $this->line()[0] ?? null;
+        if ($head === null) {
+            return null;
+        }
+        return $this->step($head['id'], $timeTarget, $hardDeadline, $by) === 'stepped' ? $head['id'] : null;
+    }
+
+    /** @return list<array> unfinished runs, first come first served */
+    private function line(): array
+    {
+        $active = array_values(array_filter($this->all(), static fn(array $job): bool => in_array($job['status'], self::ACTIVE, true)));
+        usort($active, static fn(array $a, array $b): int => [$a['seq'] ?? 0, $a['created_at'], $a['id']] <=> [$b['seq'] ?? 0, $b['created_at'], $b['id']]);
+        return $active;
+    }
+
+    private function nextSequence(): int
+    {
+        $handle = @fopen($this->dir . '/sequence', 'c+');
+        if ($handle === false || !flock($handle, LOCK_EX)) {
+            throw new \RuntimeException('Cannot use the queue counter in ' . $this->dir . '.');
+        }
+        try {
+            $next = (int)trim((string)stream_get_contents($handle)) + 1;
+            ftruncate($handle, 0);
+            rewind($handle);
+            fwrite($handle, (string)$next);
+            fflush($handle);
+            return $next;
+        } finally {
+            flock($handle, LOCK_UN);
+            fclose($handle);
+        }
     }
 
     /** Ask a run to stop. It stops now if no step holds it, otherwise at its next step. */
@@ -311,17 +358,34 @@ final class DeployQueue
         }
         $from = max(0, min($from, count($job['results'])));
         $active = in_array($job['status'], self::ACTIVE, true);
-        $others = 0;
+        $ahead = 0;
+        $aheadCourses = 0;
+        $aheadSeconds = 0.0;
         if ($active) {
-            foreach ($this->all() as $other) {
-                if ($other['id'] !== $job['id'] && in_array($other['status'], self::ACTIVE, true)) {
-                    $others++;
+            foreach ($this->line() as $other) {
+                if ($other['id'] === $job['id']) {
+                    break;
                 }
+                $ahead++;
+                // How much work is ahead: courses left in each run before this one, and a rough
+                // time from that run's own speed (about 2 s a course before it has one).
+                $left = $other['remaining'] ?? null;
+                if ($left === null || $aheadCourses === null) {
+                    $aheadCourses = null;
+                    continue;
+                }
+                $aheadCourses += (int)$left;
+                $aheadSeconds += (int)$left * ((float)($other['course_seconds'] ?? 2.0) + ($other['settings']['course_delay_ms'] ?? 0) / 1000);
             }
         }
         return self::summary($job) + [
             'cancelling' => $active && is_file($this->cancelPath($id)),
-            'other_runs' => $others,
+            // Unfinished runs ahead of this one in line (0: this one is being worked on, or is next).
+            'ahead' => $ahead,
+            // Courses still to do in the runs ahead, and a rough wait; null when a run ahead
+            // is a whole term or account whose size is not known yet.
+            'ahead_courses' => $ahead > 0 ? $aheadCourses : 0,
+            'ahead_seconds' => $ahead > 0 && $aheadCourses !== null ? (int)round($aheadSeconds) : null,
             'notes' => $job['notes'],
             'results_from' => $from,
             'results' => array_slice($job['results'], $from, self::MAX_ROWS_PER_VIEW),
@@ -375,9 +439,16 @@ final class DeployQueue
             return;
         }
         $now = $this->nowInt();
-        foreach ($this->all() as $job) {
+        $jobs = $this->all();
+        // When the queue last moved: any step, or any run ending. A run waiting its turn
+        // behind a long run is not stale while the queue keeps moving.
+        $moved = 0;
+        foreach ($jobs as $job) {
+            $moved = max($moved, (int)$job['last_step_at'], (int)$job['finished_at']);
+        }
+        foreach ($jobs as $job) {
             $active = in_array($job['status'], self::ACTIVE, true);
-            if ($active && $now - max($job['last_step_at'], $job['created_at']) > self::STALE_SECONDS) {
+            if ($active && $now - max($moved, $job['created_at']) > self::STALE_SECONDS) {
                 $lock = $this->lock($job['id']);
                 if ($lock === null) {
                     continue;
@@ -385,7 +456,7 @@ final class DeployQueue
                 try {
                     $fresh = $this->read($job['id']);
                     if ($fresh !== null && in_array($fresh['status'], self::ACTIVE, true)) {
-                        $this->finalize($fresh, 'expired', 'Nothing moved this run for 2 hours (no worker running and no page open), so it was stopped and its token deleted. Start it again; courses already done are skipped.', $this->runKey($fresh), 'maintenance');
+                        $this->finalize($fresh, 'expired', 'Nothing moved the queue for 2 hours (no worker running and no page open), so this run was stopped and its token deleted. Start it again; courses already done are skipped.', $this->runKey($fresh), 'maintenance');
                         $this->write($fresh);
                     }
                 } finally {

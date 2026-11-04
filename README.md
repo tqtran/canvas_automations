@@ -10,14 +10,16 @@ A Canvas account-admin token also gets the term / all active / all courses optio
 - Dry run first: it reports what would change and writes nothing.
 - Courses that already have the tool are left alone, unless "update tools that are already
   in the course" is ticked, which gives them the key and secret of this run.
-- Runs go into a shared queue on the server and take turns, so several people can run at
-  once. A scheduled worker moves them along; while no worker is running, the page watching a
-  run moves it in short steps instead (about 5 seconds each, never over 14, inside a
-  gateway's 20-second limit). With the worker running, the tab can be closed: connecting again with the same
-  Canvas token lists that person's runs. Finished runs are kept for 7 days.
+- Runs go into a queue on the server and are done one at a time, first come, first served:
+  a run started while another is going waits its turn, and the page shows how many runs are
+  ahead. A scheduled worker moves the queue along; while no worker is running, open pages
+  do it instead, each stepping the first run in line (about 5 seconds a step, never over 14,
+  inside a gateway's 20-second limit). Either way only one run talks to Canvas at a time.
+  With the worker running, the tab can be closed: connecting again with the same Canvas
+  token lists that person's runs. Finished runs are kept for 7 days.
 - The token stays in the browser tab, and on the server only encrypted for the length of a
   run: with a key of its own, which is in turn encrypted with the queue key. Both are
-  deleted when the run ends, and a run nothing moves for 2 hours is ended. The token is
+  deleted when the run ends, and if nothing moves the queue for 2 hours its runs are ended. The token is
   never written to the log.
 - People enter their own Canvas URL (prefilled from the config). It must be https, and a
   host that resolves to a private or internal address is refused, so the server cannot be

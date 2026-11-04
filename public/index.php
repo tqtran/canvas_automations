@@ -428,7 +428,7 @@ $cdWorkerFresh = $queue->workerFresh();
                     <li>Optionally, an unpublished module with a link to SLO Cloud.</li>
                     <li>Only what a course is missing is added. Where SLO Cloud comes from the account without a nav link, a course copy of the tool carries the nav link.</li>
                     <li>Blueprint child courses are skipped; deploy to the Blueprint course and let sync apply it.</li>
-                    <li>Runs wait in a shared queue on the server and take turns, so several people can run at once. With the queue worker running, you can close this tab and come back to it under Your runs.</li>
+                    <li>Runs wait in a queue on the server and go one at a time, in the order they were started. With the queue worker running, you can close this tab and come back to it under Your runs.</li>
                 </ul>
             </div>
         </div>
@@ -1101,17 +1101,22 @@ $cdWorkerFresh = $queue->workerFresh();
 
     function workerText(view) {
         return view.worker_fresh
-            ? 'The server worker is running it, so you can close this tab.'
-            : 'No server worker is running, so this page is moving the run along. Keep it open.';
+            ? 'The server worker is running the queue, so you can close this tab.'
+            : 'No server worker is running, so open pages move the queue along, one run at a time. Keep this page open.';
     }
 
     function statusText(view) {
         const counts = view.counts || {};
         const parts = [];
         if (view.cancelling) parts.push('Cancelling…');
-        else if (view.status === 'queued') parts.push('Waiting for its first turn.');
+        else if (view.ahead) {
+            const size = view.ahead_courses === null
+                ? ' (a whole term or account, so its size is not known yet)'
+                : ' (about ' + view.ahead_courses + ' course' + (view.ahead_courses === 1 ? '' : 's') + ' left' + (view.ahead_seconds !== null ? (view.ahead_seconds < 60 ? ', under a minute' : ', roughly ' + Math.round(view.ahead_seconds / 60) + ' min') : '') + ')';
+            parts.push('Waiting: ' + view.ahead + ' run' + (view.ahead === 1 ? '' : 's') + ' ahead of this one' + size + '. Runs go one at a time, in the order they were started.');
+        }
+        else if (view.status === 'queued') parts.push('Next in line, starting shortly.');
         else parts.push('Processed ' + (counts.processed || 0) + ' courses so far.');
-        if (view.other_runs) parts.push(view.other_runs + ' other run' + (view.other_runs === 1 ? ' is' : 's are') + ' in the queue, taking turns with this one.');
         if (view.errors && view.message) parts.push('The last step failed (' + view.message + '); it is tried again.');
         parts.push(workerText(view));
         return parts.join(' ');
@@ -1136,6 +1141,10 @@ $cdWorkerFresh = $queue->workerFresh();
         r.processed = (view.counts || {}).processed || 0;
         r.remaining = typeof view.remaining === 'number' ? view.remaining : null;
         r.helping = !view.worker_fresh;
+        r.ahead = view.ahead || 0;
+        r.aheadCourses = view.ahead_courses;
+        r.aheadSeconds = view.ahead_seconds;
+        r.aheadAt = Date.now();
     }
 
     function renderTimers(r) {
@@ -1145,8 +1154,14 @@ $cdWorkerFresh = $queue->workerFresh();
         const elapsed = end - r.createdAt;
         const items = [['Elapsed', clock(elapsed)]];
         // Waiting only while nobody is working on it (not while this page runs its step).
-        if (r.status === 'queued' && !r.processed && !(r.requestStarted && r.helping)) {
+        if (r.status === 'queued' && !r.processed && !(r.requestStarted && r.helping && !r.ahead)) {
             items.push(['Waiting for a turn', clock(serverNow - r.createdAt)]);
+            if (r.ahead) {
+                items.push(['Ahead of this run', r.ahead + ' run' + (r.ahead === 1 ? '' : 's') + (r.aheadCourses !== null && r.aheadCourses !== undefined ? ', ' + r.aheadCourses + ' courses' : '')]);
+                if (typeof r.aheadSeconds === 'number') {
+                    items.push(['Wait (estimate)', '~' + clock(Math.max(0, r.aheadSeconds - (Date.now() - r.aheadAt) / 1000))]);
+                }
+            }
         }
         const total = r.remaining !== null && r.remaining !== undefined ? r.processed + r.remaining : null;
         items.push(['Courses checked', String(r.processed) + (total !== null && r.active ? ' of ' + total : '')]);
@@ -1158,7 +1173,7 @@ $cdWorkerFresh = $queue->workerFresh();
         if (r.active) {
             if (r.lastStepAt) items.push(['Last progress', clock(serverNow - r.lastStepAt) + ' ago']);
             if (r.requestStarted) {
-                items.push([r.helping ? 'This page is working' : 'Checking', clock((Date.now() - r.requestStarted) / 1000)]);
+                items.push([r.helping ? (r.ahead ? 'Helping the queue' : 'This page is working') : 'Checking', clock((Date.now() - r.requestStarted) / 1000)]);
             } else if (r.nextCheck) {
                 items.push(['Next check in', Math.max(0, Math.ceil((r.nextCheck - Date.now()) / 1000)) + ' s']);
             }

@@ -167,12 +167,12 @@ switch ($action) {
             break;
         }
         $helped = false;
-        // No worker has checked in lately: this page moves its own run along in a short
-        // step (5 s target, 14 s hard limit) that fits well under a gateway's 20-second limit
-        // and brings new rows to the page often.
+        // No worker has checked in lately: this page moves the queue along by one short step
+        // of the first run in line (which may be someone else's), keeping one run at a time.
+        // 5 s target, 14 s hard limit: well under a gateway's 20-second limit.
         if (($_POST['help'] ?? '') === '1' && !$queue->workerFresh()) {
             session_write_close();
-            $helped = $queue->step($jobId, 5.0, 14.0, 'page') === 'stepped';
+            $helped = $queue->stepNext(5.0, 14.0, 'page') !== null;
         }
         $response = $jobReply($queue->view($jobId, (int)($_POST['from'] ?? 0)));
         $response['body']['helped'] = $helped;

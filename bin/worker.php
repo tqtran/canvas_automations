@@ -7,8 +7,8 @@ declare(strict_types=1);
  *
  *   php.exe C:\path\to\canvas_automations\bin\worker.php
  *
- * Each run works through the queued deployments for about 45 seconds, taking turns
- * between them, then exits. If the previous run is still going, it exits at once.
+ * Each run works through the queue for about 45 seconds, one deployment at a time in the
+ * order they were started, then exits. If the previous run is still going, it exits at once.
  * Options: --budget=SECONDS (default 45, at most 600).
  */
 

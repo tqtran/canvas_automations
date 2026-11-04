@@ -749,7 +749,21 @@ $first = $enqueue(['scope' => 'course', 'scope_value' => '1001,1002,1003']);
 $second = $enqueue(['scope' => 'course', 'scope_value' => '1004,1008', 'dry_run' => '1']);
 $check(isset($first['id'], $second['id']), 'Two runs could not be queued side by side: ' . json_encode([$first['error'] ?? null, $second['error'] ?? null]));
 $check(!str_contains((string)file_get_contents($queueDir . '/' . $first['id'] . '.json'), FakeCanvas::TOKEN), 'The queue file holds the Canvas token in the clear.');
-$check($queue->view($first['id'])['status'] === 'queued' && $queue->view($first['id'])['other_runs'] === 1, 'A queued run did not say another run is in the queue.');
+$check($queue->view($first['id'])['status'] === 'queued' && $queue->view($first['id'])['ahead'] === 0 && $queue->view($second['id'])['ahead'] === 1,
+    'Runs did not report their place in line.');
+$check($queue->view($second['id'])['ahead_courses'] === 3 && $queue->view($second['id'])['ahead_seconds'] > 0,
+    'The work ahead (courses left in earlier runs) was not counted: ' . json_encode(array_intersect_key($queue->view($second['id']), array_flip(['ahead_courses', 'ahead_seconds']))));
+
+// A page helping (no worker) steps the first run in line, even from the second run's page,
+// and never starts the second run while the first is being stepped.
+$clock->now += 1;
+$check($queue->stepNext(0.1, 10.0) === $first['id'] && $queue->view($first['id'])['status'] === 'running' && $queue->view($second['id'])['last_step_at'] === 0,
+    'A page step did not go to the first run in line.');
+$headLock = fopen($queueDir . '/' . $first['id'] . '.lock', 'c');
+flock($headLock, LOCK_EX);
+$check($queue->stepNext(2.0, 10.0) === null && $queue->view($second['id'])['last_step_at'] === 0, 'The second run was started while the first was being stepped.');
+flock($headLock, LOCK_UN);
+fclose($headLock);
 
 // A step that another step holds is refused, not run twice.
 $held = fopen($queueDir . '/' . $first['id'] . '.lock', 'c');
@@ -777,6 +791,12 @@ foreach ([[$first, 3], [$second, 2]] as [$job, $courses]) {
 }
 $check(count($canvas->state['courses'][1001]['tools']) === 1 && $canvas->state['courses'][1008]['tools'] === [], 'The worker did not deploy the real run, or wrote during the dry run.');
 
+// First come, first served: the first run finished before the second had a single step.
+$stepOrder = array_column(array_map(static fn(array $entry): array => $entry[1], array_filter($queueLog, static fn(array $entry): bool => $entry[0] === 'run_step')), 'run_id');
+$lastFirst = max(array_keys($stepOrder, $first['id'], true));
+$firstSecond = min(array_keys($stepOrder, $second['id'], true) ?: [PHP_INT_MAX]);
+$check($lastFirst < $firstSecond, 'Runs were interleaved instead of one at a time: ' . implode(',', array_map(static fn(string $id): string => $id === $first['id'] ? 'A' : 'B', $stepOrder)));
+
 // Every decision is logged: queued, each step and why it stopped, how the run ended.
 $firstLog = $eventsFor($first['id']);
 $names = array_column($firstLog, 0);
@@ -801,7 +821,18 @@ $raw = json_decode((string)file_get_contents($queueDir . '/' . $cancelled['id'] 
 $check($raw['status'] === 'cancelled' && $raw['store'] === null, 'A cancelled run kept going or kept its token.');
 $check(array_slice(array_column($eventsFor($cancelled['id']), 0), -2) === ['run_cancel_requested', 'run_ended'], 'A cancel was not logged.');
 
-// A run nothing moves for two hours expires; finished runs go after seven days.
+// A run waiting behind a run that keeps moving does not expire, however long it waits.
+$long = $enqueue(['scope' => 'course', 'scope_value' => '1011']);
+$behind = $enqueue(['scope' => 'course', 'scope_value' => '1003']);
+$clock->now += DeployQueue::STALE_SECONDS - 60;
+$queue->stepNext(0.1, 10.0, 'test');
+$clock->now += 120;
+$queue->maintain();
+$check($queue->view($behind['id'])['status'] === 'queued', 'A run waiting behind a moving run expired.');
+$queue->cancel($long['id']);
+$queue->cancel($behind['id']);
+
+// A queue nothing moves for two hours expires its runs; finished runs go after seven days.
 $stale = $enqueue(['scope' => 'course', 'scope_value' => '1009']);
 $clock->now += DeployQueue::STALE_SECONDS + 60;
 $queue->maintain();

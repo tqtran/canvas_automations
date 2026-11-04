@@ -44,7 +44,7 @@ $cdDefaults = $canvasDeploy['defaults'];
 $cdScopeValue = (string)$cdDefaults['scope_value'];
 ?>
 <div class="container my-4">
-<p class="lead">Install the SLO Cloud LTI 1.1 tool in your Canvas courses. Connect with your Canvas API token, then choose the courses. Courses that already have it are left alone, so this can be run again at any time.</p>
+<p class="lead">Install the SLO Cloud LTI 1.1 tool in your Canvas courses. Connect with your Canvas API token, then choose the courses. Only what a course is missing is added, so this can be run again at any time.</p>
 
 <div class="row g-4">
     <div class="col-xl-8">
@@ -235,7 +235,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="checkbox" id="cdCreateNav" name="create_nav" checked>
                         <label class="form-check-label" for="cdCreateNav">Add a Course Navigation link to SLO Cloud</label>
-                        <div class="form-text">Where SLO Cloud comes from the account without a nav link, a course copy of the tool carries it. Courses that already have the nav link are left alone.</div>
+                        <div class="form-text">Courses that already have the nav link are left alone. Where SLO Cloud comes from the account without a nav link, a course copy of the tool is added to carry it (needs the key and secret).</div>
                     </div>
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="checkbox" id="cdCreateModule" name="create_module" <?= $cdDefaults['create_module'] ? 'checked' : '' ?>>
@@ -248,7 +248,17 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                         <div id="cdModuleNameHelp" class="form-text">An existing module with this name is reused.</div>
                         <div id="cdModuleNameError" class="invalid-feedback"></div>
                     </div>
-                    <div class="mb-0">
+                    <div class="form-check mb-2" id="cdUpdateWrap">
+                        <input class="form-check-input" type="checkbox" id="cdUpdateExisting">
+                        <label class="form-check-label" for="cdUpdateExisting">Also update tools that are already in the course to use these credentials</label>
+                        <div class="form-text">Off by default, so a tool that already works is left alone. Course tools with the same launch URL are given this key and secret; a dry run lists which ones. A tool installed at the account level can't be changed from a course.</div>
+                    </div>
+                    <div class="form-check mb-2 d-none" id="cdFixAccountNavWrap">
+                        <input class="form-check-input" type="checkbox" id="cdFixAccountNav">
+                        <label class="form-check-label" for="cdFixAccountNav">Add the nav link to the account's SLO Cloud tool</label>
+                        <div class="form-text">For an account-level SLO Cloud tool that has no Course Navigation link. Adds it once on the account tool, so every course under that account shows SLO Cloud. Needs an account admin token, not the key or secret. A dry run only says whether it would.</div>
+                    </div>
+                    <div class="mb-0 mt-3">
                         <label for="cdDelay" class="form-label">Delay between courses (milliseconds)</label>
                         <input type="number" class="form-control" id="cdDelay" name="course_delay_ms" min="0" max="10000" step="50" inputmode="numeric"
                             value="<?= $h($cdDefaults['course_delay_ms']) ?>" required aria-describedby="cdDelayHelp cdDelayError">
@@ -275,16 +285,6 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                             </thead>
                             <tbody id="cdSummaryBody"></tbody>
                         </table>
-                    </div>
-                    <div class="form-check mb-3" id="cdUpdateWrap">
-                        <input class="form-check-input" type="checkbox" id="cdUpdateExisting">
-                        <label class="form-check-label" for="cdUpdateExisting">Also update tools that are already in the course to use these credentials</label>
-                        <div class="form-text">Off by default, so a tool that already works is left alone. Course tools with the same launch URL are given this key and secret; a dry run lists which ones. A tool installed at the account level can't be changed from a course.</div>
-                    </div>
-                    <div class="form-check mb-3 d-none" id="cdFixAccountNavWrap">
-                        <input class="form-check-input" type="checkbox" id="cdFixAccountNav">
-                        <label class="form-check-label" for="cdFixAccountNav">Add the nav link to the account's SLO Cloud tool</label>
-                        <div class="form-text">For an account-level SLO Cloud tool that has no Course Navigation link. Adds it once on the account tool, so every course under that account shows SLO Cloud. Needs an account admin token, not the key or secret. A dry run only says whether it would.</div>
                     </div>
                     <div id="cdFormError" class="alert alert-danger d-none" role="alert"></div>
                     <div id="cdConfirmNote" class="alert alert-warning d-none" role="alert"></div>
@@ -386,7 +386,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                 <ul class="mb-0">
                     <li>A course navigation tab that only instructors, TAs, and designers can see.</li>
                     <li>Optionally, an unpublished module with a link to SLO Cloud.</li>
-                    <li>Courses that already have SLO Cloud, directly or from their account, are left alone.</li>
+                    <li>Only what a course is missing is added. Where SLO Cloud comes from the account without a nav link, a course copy of the tool carries the nav link.</li>
                     <li>Blueprint child courses are skipped; deploy to the Blueprint course and let sync apply it.</li>
                     <li>Keep this tab open during a run. If it closes, run the same selection again to continue.</li>
                 </ul>
@@ -604,7 +604,13 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
         ];
         let changed = 0;
         els.summary.replaceChildren();
-        rows.forEach(([label, key]) => {
+        const offered = (key) => {
+            if (key === 'update_existing') return current.operation === 'deploy';
+            if (key === 'fix_account_nav') return connectedAdmin && current.operation === 'deploy';
+            if (key === 'create_nav') return current.operation === 'deploy';
+            return true;
+        };
+        rows.filter(([, key]) => offered(key)).forEach(([label, key]) => {
             const saved = config.defaults[key];
             const now = current[key];
             const differs = comparable(key, saved) !== comparable(key, now);
@@ -704,7 +710,10 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
     }
 
     function updateSelectedCount() {
-        els.selectedCount.textContent = selected.size + ' selected of ' + courses.length + ' courses.';
+        const shown = new Set(visibleCourses().map((course) => course.id));
+        const hidden = Array.from(selected).filter((id) => !shown.has(id)).length;
+        els.selectedCount.textContent = selected.size + ' selected of ' + courses.length + ' courses'
+            + (hidden ? ' (' + hidden + ' not shown by the current filter).' : '.');
     }
 
     function renderCourses() {
@@ -944,7 +953,8 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
         ] : [
             ['Courses processed', counts.processed],
             [dryRun ? 'Tools to create' : 'Tools created', dryRun ? counts.tool_would_create : counts.tool_created],
-            ['Tool already present', counts.tool_present],
+            ['Tool already present (course or account)', counts.tool_present],
+            [dryRun ? 'Course copies to make for the nav link' : 'Course copies made for the nav link', (dryRun ? counts.tool_would_copy : counts.tool_copied) || 0],
             [dryRun ? 'Tools to update' : 'Tools updated', dryRun ? counts.tool_would_update : counts.tool_updated],
             [dryRun ? 'Nav links to add' : 'Nav links added', (dryRun ? counts.nav_would_add : counts.nav_added) || 0],
             ['Nav link already present', counts.nav_present || 0],
@@ -1133,8 +1143,8 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                 els.deploy.classList.replace(settings.operation === 'remove' ? 'btn-outline-danger' : 'btn-primary', 'btn-danger');
                 els.confirmNote.textContent = settings.operation === 'remove'
                     ? 'Remove SLO Cloud from ' + scopeText + '? This deletes the course tool and its module link in every one of those courses, and cannot be undone from here. Click Confirm to start, or change anything to cancel.'
-                    : 'Deploy SLO Cloud to ' + scopeText + '? This creates the tool' + (settings.create_module === '1' ? ' and module link' : '')
-                        + ' in every course that does not have it yet. '
+                    : 'Deploy SLO Cloud to ' + scopeText + '? This adds the tool' + (settings.create_nav === '1' ? ', nav link' : '') + (settings.create_module === '1' ? ' and module link' : '')
+                        + ' wherever a course is missing them. '
                         + (settings.update_existing === '1' ? 'Tools already in a course are given these credentials. ' : 'Existing installs are left alone. ')
                         + 'Click Confirm to start, or change anything to cancel.';
                 els.confirmNote.classList.remove('d-none');

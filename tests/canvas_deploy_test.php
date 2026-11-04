@@ -590,8 +590,8 @@ $accountNoNavRun = static function (array $extra) use ($clock, $noLti, $settings
     }
     $batches = [];
     $rows = $runAll($service, $started['body']['run_id'], $started['body']['run_key'], $batches);
-    $service->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
-    return [$rows[0] ?? [], $canvas, $started];
+    $finished = $service->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
+    return [$rows[0] ?? [], $canvas, $started, $finished['body']['counts'] ?? []];
 };
 [$row, $canvasAfter, $started] = $accountNoNavRun([]);
 $check(($started['body']['account_tool'] ?? true) === false, 'An account tool without a nav link was trusted for every course.');
@@ -607,7 +607,9 @@ $check(($row['nav'] ?? '') === 'not_added' && $hasNote($row, 'does not match') &
 [$row, $canvasAfter] = $accountNoNavRun(['create_nav' => '1', 'lti_consumer_key' => FakeCanvas::CONSUMER_KEY, 'lti_consumer_secret' => 's', 'dry_run' => '1']);
 $check(($row['tool'] ?? '') === 'would_create_for_nav' && ($row['nav'] ?? '') === 'would_add' && $canvasAfter->state['courses'][1001]['tools'] === [],
     '"Add navigation" dry run: should say it would add the nav copy, and change nothing.');
-[$row, $canvasAfter] = $accountNoNavRun(['create_nav' => '1', 'lti_consumer_key' => FakeCanvas::CONSUMER_KEY, 'lti_consumer_secret' => 's']);
+[$row, $canvasAfter, , $copyCounts] = $accountNoNavRun(['create_nav' => '1', 'lti_consumer_key' => FakeCanvas::CONSUMER_KEY, 'lti_consumer_secret' => 's']);
+$check(($copyCounts['tool_created'] ?? -1) === 0 && ($copyCounts['tool_present'] ?? 0) === 1 && ($copyCounts['tool_copied'] ?? 0) === 1,
+    'A course copy for the nav link should count as already present plus a copy, not as a new install.');
 $added = $canvasAfter->state['courses'][1001]['tools'][0] ?? [];
 $check(($row['tool'] ?? '') === 'created_for_nav' && ($row['nav'] ?? '') === 'added' && ($row['status'] ?? '') === 'ok' && ($row['module'] ?? '') === 'created'
     && !empty($added['course_navigation']) && !empty($added['shared_secret_set']), '"Add navigation" with the key and secret: the course nav copy was not added.');

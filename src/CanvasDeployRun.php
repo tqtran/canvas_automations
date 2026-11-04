@@ -83,6 +83,7 @@ final class CanvasDeployRun
         'module_would_add', 'module_present', 'warnings', 'failed', 'skipped', 'out_of_scope',
         'tool_removed', 'tool_would_remove', 'tool_absent', 'module_removed', 'module_would_remove',
         'tool_updated', 'tool_would_update', 'nav_added', 'nav_would_add', 'nav_present', 'nav_not_added',
+        'tool_copied', 'tool_would_copy',
     ];
 
     private array $store;
@@ -771,15 +772,24 @@ final class CanvasDeployRun
         $processed++;
         $counts = &$run['counts'];
         $counts['processed']++;
+        // Runs started before these counts existed have no such keys yet.
+        $counts += array_fill_keys(['tool_copied', 'tool_would_copy'], 0);
+        // A course copy made for the nav link is counted with "already present" (the course had
+        // SLO Cloud from its account) and on its own line, not as a new install.
         match ($row['tool']) {
-            'created', 'created_for_nav' => $counts['tool_created']++,
-            'would_create', 'would_create_for_nav' => $counts['tool_would_create']++,
-            'present', 'present_account' => $counts['tool_present']++,
+            'created' => $counts['tool_created']++,
+            'would_create' => $counts['tool_would_create']++,
+            'present', 'present_account', 'created_for_nav', 'would_create_for_nav' => $counts['tool_present']++,
             'removed' => $counts['tool_removed']++,
             'updated' => $counts['tool_updated']++,
             'would_update' => $counts['tool_would_update']++,
             'would_remove' => $counts['tool_would_remove']++,
             'absent' => $counts['tool_absent']++,
+            default => null,
+        };
+        match ($row['tool']) {
+            'created_for_nav' => $counts['tool_copied']++,
+            'would_create_for_nav' => $counts['tool_would_copy']++,
             default => null,
         };
         // Runs started before the nav counts existed have no such keys yet.

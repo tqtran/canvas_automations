@@ -715,6 +715,9 @@ final class CanvasDeployRun
         $results = [];
         $processed = 0;
         $stop = 'end_of_stream';
+        // Why the step stopped, with the numbers behind it, for the log.
+        $why = [];
+        $elapsed = fn(): float => round($this->now() - $started, 3);
 
         // This run's own course times (lookup plus work, without the delay): the longest one
         // for the look-ahead, and an average, weighted to recent courses, for time left.
@@ -728,14 +731,16 @@ final class CanvasDeployRun
             if ($processed > 0 && $longest !== null && self::remaining($run) !== 0
                 && $this->now() - $started + $longest + $delay > $timeTarget) {
                 $stop = 'estimate';
+                $why = ['detail' => 'The next course could end past the target', 'elapsed' => $elapsed(), 'slowest_course' => round($longest, 3), 'delay' => $delay, 'target' => $timeTarget];
                 break;
             }
             $itemStarted = $this->now();
             $slept = 0.0;
             try {
                 $item = $this->nextItem($run, $client);
-            } catch (CanvasDeadlineExceeded) {
+            } catch (CanvasDeadlineExceeded $exception) {
                 $stop = 'deadline';
+                $why = ['detail' => 'Reading the course list reached the hard deadline', 'elapsed' => $elapsed(), 'deadline' => $hardDeadline, 'error' => $exception->getMessage()];
                 break;
             } catch (CanvasApiException $exception) {
                 $run['touched_at'] = $this->nowInt();
@@ -747,6 +752,7 @@ final class CanvasDeployRun
             }
             if ($item === null) {
                 $stop = 'end_of_stream';
+                $why = ['detail' => 'No courses left', 'elapsed' => $elapsed()];
                 break;
             }
 
@@ -754,6 +760,7 @@ final class CanvasDeployRun
                 if ($this->now() + $delay >= $started + $hardDeadline - 1) {
                     array_unshift($run['queue'], $item);
                     $stop = 'deadline';
+                    $why = ['detail' => 'The delay before the next course would pass the hard deadline', 'elapsed' => $elapsed(), 'delay' => $delay, 'deadline' => $hardDeadline];
                     break;
                 }
                 ($this->sleeper)($delay);
@@ -778,10 +785,13 @@ final class CanvasDeployRun
                     $hits = ($run['attempts'][$courseId] ?? 0) + 1;
                     $run['attempts'][$courseId] = $hits;
                     $stop = 'deadline';
+                    $why = ['detail' => 'A course reached the hard deadline', 'course_id' => $courseId, 'attempt' => $hits, 'max_attempts' => self::MAX_DEADLINE_HITS, 'elapsed' => $elapsed(), 'deadline' => $hardDeadline];
                     if ($hits < self::MAX_DEADLINE_HITS) {
+                        $why['then'] = 'Put back to start again next step';
                         array_unshift($run['queue'], $item);
                         break;
                     }
+                    $why['then'] = 'Marked failed after ' . $hits . ' attempts';
                     unset($run['attempts'][$courseId]);
                     $row = CanvasLtiDeployer::failedRow(
                         $item['course'],
@@ -795,6 +805,7 @@ final class CanvasDeployRun
             $this->record($run, $row, $results, $processed);
             if ($this->now() - $started >= $timeTarget) {
                 $stop = 'time_target';
+                $why = ['detail' => 'The target time was reached', 'elapsed' => $elapsed(), 'target' => $timeTarget];
                 break;
             }
         }
@@ -814,6 +825,7 @@ final class CanvasDeployRun
             'processed' => $processed,
             'elapsed_ms' => (int)round(($this->now() - $started) * 1000),
             'stop_reason' => $stop,
+            'stop_detail' => $why,
             'done' => $run['phase'] === 'done' && $run['queue'] === [],
             // Every row the page has not confirmed yet, starting at row number results_from.
             'results' => $run['unconfirmed'],

@@ -33,9 +33,13 @@ final class DeployQueue
     private \Closure $engine;
     private \Closure $clock;
     private ?\Closure $sleeper;
+    private ?\Closure $audit;
 
     /**
      * @param callable $engine fn(array &$store): CanvasDeployRun, already in queue mode
+     * @param callable|null $audit fn(string $event, array $data): writes one audit.log line.
+     *                             Every decision is logged: each step and why it stopped,
+     *                             failures and retries, cancels, and how each run ended.
      */
     public function __construct(
         private string $dir,
@@ -43,8 +47,10 @@ final class DeployQueue
         callable $engine,
         ?callable $clock = null,
         ?callable $sleeper = null,
+        ?callable $audit = null,
     ) {
         $this->engine = \Closure::fromCallable($engine);
+        $this->audit = $audit !== null ? \Closure::fromCallable($audit) : null;
         $this->clock = $clock !== null ? \Closure::fromCallable($clock) : static fn(): float => microtime(true);
         $this->sleeper = $sleeper !== null ? \Closure::fromCallable($sleeper) : null;
     }
@@ -112,6 +118,11 @@ final class DeployQueue
             'run_key' => (new Encryption($this->queueKey))->encrypt((string)$started['run_key']),
         ];
         $this->write($job);
+        $this->log('run_queued', $job, [
+            'canvas' => $job['owner']['origin'],
+            'canvas_user' => $job['owner']['user_name'] . ' (' . $job['owner']['user_id'] . ')',
+            'settings' => $job['settings'],
+        ]);
         return $job;
     }
 
@@ -119,13 +130,14 @@ final class DeployQueue
      * Move one run forward by one step. Returns 'stepped', 'busy' (another step holds it),
      * 'final' (already ended) or 'missing'.
      */
-    public function step(string $id, float $timeTarget, float $hardDeadline): string
+    public function step(string $id, float $timeTarget, float $hardDeadline, string $by = 'worker'): string
     {
         if (!self::validId($id)) {
             return 'missing';
         }
         $lock = $this->lock($id);
         if ($lock === null) {
+            $this->log('run_step_skipped', ['id' => $id], ['by' => $by, 'reason' => 'Another step is working on this run']);
             return 'busy';
         }
         try {
@@ -138,12 +150,12 @@ final class DeployQueue
             }
             $runKey = $this->runKey($job);
             if ($runKey === null) {
-                $this->finalize($job, 'failed', 'The run could not be read with this server\'s queue key.');
+                $this->finalize($job, 'failed', 'The run could not be read with this server\'s queue key.', null, $by);
                 $this->write($job);
                 return 'stepped';
             }
             if (is_file($this->cancelPath($id))) {
-                $this->finalize($job, 'cancelled', '', $runKey);
+                $this->finalize($job, 'cancelled', 'Cancelled at the start of a step.', $runKey, $by);
                 $this->write($job);
                 return 'stepped';
             }
@@ -160,8 +172,21 @@ final class DeployQueue
                 $job['status'] = 'running';
                 $job['errors'] = 0;
                 $job['message'] = '';
+                $this->log('run_step', $job, [
+                    'by' => $by,
+                    'courses' => $batch['processed'],
+                    'seconds' => round($batch['elapsed_ms'] / 1000, 3),
+                    'target' => $timeTarget,
+                    'deadline' => $hardDeadline,
+                    'stopped' => $batch['stop_reason'],
+                    'why' => $batch['stop_detail'] ?? [],
+                    'course_seconds_avg' => $batch['course_seconds'],
+                    'course_seconds_max' => $store['run']['course_seconds_max'] ?? null,
+                    'remaining' => $batch['remaining'],
+                    'processed_total' => $batch['counts']['processed'] ?? 0,
+                ]);
                 if ($batch['done']) {
-                    $this->finalize($job, 'done', '', $runKey);
+                    $this->finalize($job, 'done', '', $runKey, $by);
                 }
             } catch (CanvasDeployException | CanvasApiException $exception) {
                 // The engine keeps rows it recorded before the error; the next step sends them.
@@ -171,10 +196,19 @@ final class DeployQueue
                 $job['message'] = $exception->getMessage();
                 $fatal = ($exception instanceof CanvasApiException && $exception->status() === 401)
                     || ($exception instanceof CanvasDeployException && in_array($exception->errorCode(), ['run_missing', 'run_key_rejected', 'run_forbidden'], true));
-                if ($fatal || $job['errors'] >= self::MAX_ERRORS) {
+                $stopping = $fatal || $job['errors'] >= self::MAX_ERRORS;
+                $this->log('run_step_failed', $job, [
+                    'by' => $by,
+                    'error' => $exception instanceof CanvasDeployException ? $exception->errorCode() : 'canvas_' . $exception->kind(),
+                    'message' => $exception->getMessage(),
+                    'failures_in_a_row' => $job['errors'],
+                    'max_failures' => self::MAX_ERRORS,
+                    'then' => $stopping ? ($fatal ? 'Stopping the run: this error cannot be retried' : 'Stopping the run: too many failures in a row') : 'Trying again next step',
+                ]);
+                if ($stopping) {
                     $this->finalize($job, 'failed', $fatal && $exception instanceof CanvasApiException
                         ? 'Canvas refused the token (it may have expired or been deleted): ' . $exception->getMessage()
-                        : 'Stopped after ' . $job['errors'] . ' failed attempts in a row. Last error: ' . $exception->getMessage(), $runKey);
+                        : 'Stopped after ' . $job['errors'] . ' failed attempts in a row. Last error: ' . $exception->getMessage(), $runKey, $by);
                 }
             }
             $job['last_step_at'] = $this->nowInt();
@@ -197,11 +231,13 @@ final class DeployQueue
             if ($handle !== false) {
                 fclose($handle);
             }
+            $this->log('worker_skipped', null, ['reason' => 'Another worker is still running']);
             return ['worker' => 'busy', 'steps' => 0, 'runs' => 0];
         }
         $started = $this->now();
         $steps = 0;
         $runs = [];
+        $ended = 'Its time budget was used';
         try {
             $this->heartbeat();
             $this->maintain();
@@ -223,12 +259,17 @@ final class DeployQueue
                     $this->heartbeat();
                 }
                 if (!$moved) {
+                    $ended = $active === [] ? 'No runs waiting' : 'Every waiting run was being worked on elsewhere';
                     break;
                 }
             }
         } finally {
             flock($handle, LOCK_UN);
             fclose($handle);
+        }
+        // An idle worker (nothing queued) is not logged every minute; worker.json shows it ran.
+        if ($steps > 0 || $ended !== 'No runs waiting') {
+            $this->log('worker_run', null, ['budget' => $budget, 'steps' => $steps, 'runs' => count($runs), 'seconds' => round($this->now() - $started, 1), 'ended' => $ended]);
         }
         return ['worker' => 'ran', 'steps' => $steps, 'runs' => count($runs), 'seconds' => round($this->now() - $started, 1)];
     }
@@ -242,12 +283,14 @@ final class DeployQueue
         @touch($this->cancelPath($id));
         $lock = $this->lock($id);
         if ($lock === null) {
+            $this->log('run_cancel_requested', ['id' => $id], ['then' => 'A step is running; the run stops when it ends']);
             return;
         }
         try {
             $job = $this->read($id);
             if ($job !== null && in_array($job['status'], self::ACTIVE, true)) {
-                $this->finalize($job, 'cancelled', '', $this->runKey($job));
+                $this->log('run_cancel_requested', $job, ['then' => 'Stopping now']);
+                $this->finalize($job, 'cancelled', 'Cancelled from the page.', $this->runKey($job), 'page');
                 $this->write($job);
             }
         } finally {
@@ -280,6 +323,8 @@ final class DeployQueue
             'results' => array_slice($job['results'], $from, self::MAX_ROWS_PER_VIEW),
             'worker_seen' => $this->workerSeen(),
             'worker_fresh' => $this->workerFresh(),
+            // The server's clock, so the page can show elapsed times despite clock differences.
+            'now' => $this->nowInt(),
         ];
     }
 
@@ -336,13 +381,14 @@ final class DeployQueue
                 try {
                     $fresh = $this->read($job['id']);
                     if ($fresh !== null && in_array($fresh['status'], self::ACTIVE, true)) {
-                        $this->finalize($fresh, 'expired', 'Nothing moved this run for 2 hours (no worker running and no page open), so it was stopped and its token deleted. Start it again; courses already done are skipped.', $this->runKey($fresh));
+                        $this->finalize($fresh, 'expired', 'Nothing moved this run for 2 hours (no worker running and no page open), so it was stopped and its token deleted. Start it again; courses already done are skipped.', $this->runKey($fresh), 'maintenance');
                         $this->write($fresh);
                     }
                 } finally {
                     $this->unlock($lock);
                 }
             } elseif (!$active && $now - $job['finished_at'] > self::KEEP_SECONDS) {
+                $this->log('run_deleted', $job, ['reason' => 'Finished more than 7 days ago']);
                 foreach ([$this->path($job['id']), $this->cancelPath($job['id']), $this->dir . '/' . $job['id'] . '.lock'] as $file) {
                     @unlink($file);
                 }
@@ -390,7 +436,7 @@ final class DeployQueue
     }
 
     /** End a run: close it in the engine (audit line) and delete the token and keys. */
-    private function finalize(array &$job, string $status, string $message, ?string $runKey = null): void
+    private function finalize(array &$job, string $status, string $message, ?string $runKey = null, string $by = 'worker'): void
     {
         if ($runKey !== null && isset($job['store']['run'])) {
             $store = $job['store'];
@@ -409,6 +455,27 @@ final class DeployQueue
         $job['store'] = null;
         $job['run_key'] = null;
         @unlink($this->cancelPath($job['id']));
+        $this->log('run_ended', $job, [
+            'by' => $by,
+            'status' => $status,
+            'reason' => $message !== '' ? $message : ($status === 'done' ? 'Every course was checked' : ''),
+            'counts' => $job['counts'],
+            'token_deleted' => true,
+        ]);
+    }
+
+    /** One audit.log line about a run (or the worker when $job is null). */
+    private function log(string $event, ?array $job, array $data): void
+    {
+        if ($this->audit === null) {
+            return;
+        }
+        $base = $job === null ? [] : ['run_id' => $job['id']];
+        try {
+            ($this->audit)($event, $base + $data);
+        } catch (\Throwable) {
+            // Logging never stops a run.
+        }
     }
 
     private function runKey(array $job): ?string

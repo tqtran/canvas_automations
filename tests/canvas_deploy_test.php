@@ -734,7 +734,12 @@ $queueDir = $lockRoot . '/queue';
 $clock = new FakeClock();
 $canvas = new FakeCanvas(FakeCanvas::scenario(['fresh_courses' => 0]), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
 $queueEngine = static fn(array &$store): CanvasDeployRun => $newService($store, $canvas, $clock, 0)->forQueue();
-$queue = new DeployQueue($queueDir, Encryption::generateKey(), $queueEngine, $clock, [$clock, 'sleep']);
+$queueLog = [];
+$queue = new DeployQueue($queueDir, Encryption::generateKey(), $queueEngine, $clock, [$clock, 'sleep'],
+    static function (string $event, array $data) use (&$queueLog): void { $queueLog[] = [$event, $data]; });
+$eventsFor = static function (string $id) use (&$queueLog): array {
+    return array_values(array_filter($queueLog, static fn(array $entry): bool => ($entry[1]['run_id'] ?? '') === $id));
+};
 $enqueue = static function (array $extra) use ($queueEngine, $queue, $settings): array {
     $store = [];
     $started = $queueEngine($store)->dispatch('run_start', $settings($extra));
@@ -771,6 +776,20 @@ foreach ([[$first, 3], [$second, 2]] as [$job, $courses]) {
     $check($raw['store'] === null && $raw['run_key'] === null, 'A finished run kept its token or key.');
 }
 $check(count($canvas->state['courses'][1001]['tools']) === 1 && $canvas->state['courses'][1008]['tools'] === [], 'The worker did not deploy the real run, or wrote during the dry run.');
+
+// Every decision is logged: queued, each step and why it stopped, how the run ended.
+$firstLog = $eventsFor($first['id']);
+$names = array_column($firstLog, 0);
+$steps = array_values(array_filter($firstLog, static fn(array $entry): bool => $entry[0] === 'run_step'));
+$ended = array_values(array_filter($firstLog, static fn(array $entry): bool => $entry[0] === 'run_ended'))[0][1] ?? [];
+$check($names[0] === 'run_queued' && end($names) === 'run_ended' && $steps !== [], 'A run\'s log did not go queued, steps, ended: ' . implode(',', $names));
+$check(array_sum(array_column(array_column($steps, 1), 'courses')) === 3
+    && array_filter(array_column($steps, 1), static fn(array $step): bool => $step['by'] === 'worker' && $step['stopped'] !== '' && isset($step['why']['detail'], $step['target'], $step['deadline'])) !== [],
+    'A step was logged without who took it, how many courses, or why it stopped: ' . json_encode($steps[0][1] ?? null));
+$check(($ended['status'] ?? '') === 'done' && ($ended['reason'] ?? '') !== '' && ($ended['token_deleted'] ?? false) === true, 'How the run ended was not logged: ' . json_encode($ended));
+$check(in_array('worker_run', array_column($queueLog, 0), true) && in_array('worker_skipped', array_column($queueLog, 0), true)
+    && in_array('run_step_skipped', array_column($queueLog, 0), true), 'Worker runs, a skipped worker, or a skipped step were not logged.');
+$check(!str_contains(json_encode($queueLog), FakeCanvas::TOKEN), 'The token reached the queue log.');
 $check(count($queue->owned('https://canvas.test', 1)) === 2 && $queue->owned('https://canvas.test', 2) === [] && $queue->owned('https://other.test', 1) === [],
     'Runs were not listed by their Canvas owner only.');
 $check(count($queue->view($first['id'], 2)['results']) === 1, 'A view did not start at the requested row.');
@@ -780,6 +799,7 @@ $cancelled = $enqueue(['scope' => 'course', 'scope_value' => '1005']);
 $queue->cancel($cancelled['id']);
 $raw = json_decode((string)file_get_contents($queueDir . '/' . $cancelled['id'] . '.json'), true);
 $check($raw['status'] === 'cancelled' && $raw['store'] === null, 'A cancelled run kept going or kept its token.');
+$check(array_slice(array_column($eventsFor($cancelled['id']), 0), -2) === ['run_cancel_requested', 'run_ended'], 'A cancel was not logged.');
 
 // A run nothing moves for two hours expires; finished runs go after seven days.
 $stale = $enqueue(['scope' => 'course', 'scope_value' => '1009']);
@@ -787,9 +807,12 @@ $clock->now += DeployQueue::STALE_SECONDS + 60;
 $queue->maintain();
 $raw = json_decode((string)file_get_contents($queueDir . '/' . $stale['id'] . '.json'), true);
 $check($raw['status'] === 'expired' && $raw['store'] === null && $raw['run_key'] === null, 'A stale run did not expire, or kept its token.');
+$staleEnd = array_values(array_filter($eventsFor($stale['id']), static fn(array $entry): bool => $entry[0] === 'run_ended'))[0][1] ?? [];
+$check(($staleEnd['status'] ?? '') === 'expired' && ($staleEnd['by'] ?? '') === 'maintenance' && str_contains((string)($staleEnd['reason'] ?? ''), '2 hours'), 'An expiry was not logged with its reason.');
 $clock->now += DeployQueue::KEEP_SECONDS + 60;
 $queue->maintain();
 $check(!is_file($queueDir . '/' . $first['id'] . '.json') && !is_file($queueDir . '/' . $stale['id'] . '.json'), 'Old finished runs were not deleted.');
+$check(in_array('run_deleted', array_column($eventsFor($first['id']), 0), true), 'Deleting an old run was not logged.');
 
 // A wrong queue key cannot read the run keys: the run stops instead of guessing.
 $orphan = $enqueue(['scope' => 'course', 'scope_value' => '1010']);

@@ -12,8 +12,8 @@ A Canvas account-admin token also gets the term / all active / all courses optio
   in the course" is ticked, which gives them the key and secret of this run.
 - Runs go into a shared queue on the server and take turns, so several people can run at
   once. A scheduled worker moves them along; while no worker is running, the page watching a
-  run moves it in short steps instead (under 15 seconds each, inside a gateway's 20-second
-  limit). With the worker running, the tab can be closed: connecting again with the same
+  run moves it in short steps instead (about 5 seconds each, never over 14, inside a
+  gateway's 20-second limit). With the worker running, the tab can be closed: connecting again with the same
   Canvas token lists that person's runs. Finished runs are kept for 7 days.
 - The token stays in the browser tab, and on the server only encrypted for the length of a
   run: with a key of its own, which is in turn encrypted with the queue key. Both are
@@ -25,7 +25,13 @@ A Canvas account-admin token also gets the term / all active / all courses optio
 - The LTI key and secret in the config are only ever sent to the configured Canvas. For any
   other Canvas the person types their own.
 - Rejected tokens are throttled: 10 per address per 15 minutes.
-- Every run is logged to `var/audit.log` (who in Canvas, which courses, counts).
+- Everything a run does is logged to `var/audit.log`, one JSON line per event: who started
+  it and with what settings (`run_queued`), each step with who took it (worker or page), how
+  many courses, how long, and why it stopped with the numbers behind it (`run_step`), failed
+  steps and whether they are retried (`run_step_failed`), each course's result
+  (`course_result`), cancels, and how and why the run ended (`run_ended`). Worker runs that
+  did something are logged too (`worker_run`). Past 20 MB the log moves to `audit.log.1`.
+  On the page, "View this run's log" shows one run's lines (`log.php?run=<id>`).
 
 ### Requirements
 

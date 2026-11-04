@@ -9,6 +9,45 @@ header('Content-Type: text/plain; charset=UTF-8');
 header('Cache-Control: no-store');
 
 $file = $appConfig['data_dir'] . '/audit.log';
+
+// log.php?run=<id>: everything logged about one run, oldest first: when it was queued, each
+// step (who took it, how many courses, why it stopped), failures, each course's result, and
+// how it ended. Only for runs this browser session may see (see "Your runs").
+if (isset($_GET['run'])) {
+    $runId = (string)$_GET['run'];
+    if (!CanvasAutomations\DeployQueue::validId($runId) || !in_array($runId, (array)($_SESSION['canvas_jobs'] ?? []), true)) {
+        http_response_code(403);
+        echo "This run was not started from this browser. Connect with the Canvas token that started it, then open its log again.\n";
+        exit;
+    }
+    $found = 0;
+    foreach ([$file . '.1', $file] as $source) {
+        $handle = is_file($source) ? @fopen($source, 'rb') : false;
+        if ($handle === false) {
+            continue;
+        }
+        while (($line = fgets($handle)) !== false) {
+            if (!str_contains($line, $runId)) {
+                continue;
+            }
+            $entry = json_decode($line, true);
+            if (!is_array($entry) || ($entry['run_id'] ?? '') !== $runId) {
+                continue;
+            }
+            $at = (string)($entry['at'] ?? '');
+            $event = (string)($entry['event'] ?? '');
+            unset($entry['at'], $entry['event'], $entry['run_id'], $entry['ip']);
+            echo $at, '  ', str_pad($event, 20), ' ', json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), "\n";
+            $found++;
+        }
+        fclose($handle);
+    }
+    if ($found === 0) {
+        echo "Nothing logged for this run yet.\n";
+    }
+    exit;
+}
+
 $lines = [];
 if (is_file($file) && ($handle = @fopen($file, 'rb')) !== false) {
     $size = (int)filesize($file);

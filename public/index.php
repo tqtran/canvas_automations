@@ -315,12 +315,14 @@ $cdWorkerFresh = $queue->workerFresh();
                 <div class="progress mb-3" id="cdProgressBar" role="progressbar" aria-label="Run in progress">
                     <div class="progress-bar progress-bar-striped progress-bar-animated w-100"></div>
                 </div>
+                <div class="row row-cols-2 row-cols-md-3 g-2 mb-3" id="cdTimers" aria-live="off"></div>
                 <dl class="row mb-3" id="cdCounts"></dl>
                 <div id="cdRunError" class="alert alert-danger d-none" role="alert"></div>
                 <div class="d-flex flex-wrap gap-2">
                     <button type="button" class="btn btn-outline-danger" id="cdCancel">Cancel run</button>
                 </div>
                 <ul id="cdRunNotes" class="mt-3 mb-0"></ul>
+                <p class="form-text mb-0 mt-2"><a id="cdRunLog" href="#" target="_blank" rel="noopener">View this run's log</a>: each step, why it stopped, and each course's result.</p>
             </div>
         </div>
 
@@ -436,7 +438,7 @@ $cdWorkerFresh = $queue->workerFresh();
         summary: byId('cdSummaryBody'), formError: byId('cdFormError'),
         dryRun: byId('cdDryRun'), deploy: byId('cdDeploy'),
         progressCard: byId('cdProgressCard'), progressTitle: byId('cdProgressTitle'), progressStatus: byId('cdProgressStatus'),
-        progressBar: byId('cdProgressBar'), counts: byId('cdCounts'), runError: byId('cdRunError'), jobsCard: byId('cdJobsCard'), jobsList: byId('cdJobsList'),
+        progressBar: byId('cdProgressBar'), counts: byId('cdCounts'), runError: byId('cdRunError'), timers: byId('cdTimers'), jobsCard: byId('cdJobsCard'), jobsList: byId('cdJobsList'),
         cancel: byId('cdCancel'), runNotes: byId('cdRunNotes'),
         resultsCard: byId('cdResultsCard'), onlyIssues: byId('cdOnlyIssues'), csv: byId('cdDownloadCsv'),
         resultsNote: byId('cdResultsNote'), results: byId('cdResultsBody'),
@@ -1069,6 +1071,8 @@ $cdWorkerFresh = $queue->workerFresh();
 
     function endRun(title, message) {
         run.active = false;
+        renderTimers(run);
+        stopTimers();
         els.progressTitle.textContent = title;
         els.progressStatus.textContent = message;
         els.progressBar.classList.add('d-none');
@@ -1090,19 +1094,84 @@ $cdWorkerFresh = $queue->workerFresh();
         if (view.cancelling) parts.push('Cancelling…');
         else if (view.status === 'queued') parts.push('Waiting for its first turn.');
         else parts.push('Processed ' + (counts.processed || 0) + ' courses so far.');
-        if (view.course_seconds) {
-            const each = view.course_seconds + ((view.settings || {}).course_delay_ms || 0) / 1000;
-            let pace = 'About ' + each.toFixed(1) + ' s per course';
-            if (typeof view.remaining === 'number' && view.remaining > 0) {
-                const minutes = Math.ceil(view.remaining * each / 60);
-                pace += ', ' + view.remaining + ' left (about ' + minutes + ' min of work)';
-            }
-            parts.push(pace + '.');
-        }
         if (view.other_runs) parts.push(view.other_runs + ' other run' + (view.other_runs === 1 ? ' is' : 's are') + ' in the queue, taking turns with this one.');
         if (view.errors && view.message) parts.push('The last step failed (' + view.message + '); it is tried again.');
         parts.push(workerText(view));
         return parts.join(' ');
+    }
+
+    // Timers on the page side: they only need to show that things are moving, so they come
+    // from the browser's clock, corrected by the server's clock in each status reply.
+    let timerHandle = null;
+    const clock = (seconds) => {
+        seconds = Math.max(0, Math.round(seconds));
+        const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
+        return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + String(s).padStart(2, '0');
+    };
+    const shortSeconds = (seconds) => (seconds < 10 ? seconds.toFixed(1) : String(Math.round(seconds))) + ' s';
+
+    function trackTimes(r, view) {
+        if (typeof view.now === 'number') r.offset = Date.now() / 1000 - view.now;
+        r.createdAt = view.created_at || r.createdAt;
+        r.lastStepAt = view.last_step_at || 0;
+        r.finishedAt = view.finished_at || 0;
+        r.status = view.status;
+        r.processed = (view.counts || {}).processed || 0;
+        r.remaining = typeof view.remaining === 'number' ? view.remaining : null;
+        r.helping = !view.worker_fresh;
+    }
+
+    function renderTimers(r) {
+        if (!r || !r.createdAt) { els.timers.replaceChildren(); return; }
+        const serverNow = Date.now() / 1000 - (r.offset || 0);
+        const end = r.finishedAt || serverNow;
+        const elapsed = end - r.createdAt;
+        const items = [['Elapsed', clock(elapsed)]];
+        // Waiting only while nobody is working on it (not while this page runs its step).
+        if (r.status === 'queued' && !r.processed && !(r.requestStarted && r.helping)) {
+            items.push(['Waiting for a turn', clock(serverNow - r.createdAt)]);
+        }
+        const total = r.remaining !== null && r.remaining !== undefined ? r.processed + r.remaining : null;
+        items.push(['Courses checked', String(r.processed) + (total !== null && r.active ? ' of ' + total : '')]);
+        if (r.processed) {
+            const each = elapsed / r.processed;
+            items.push(['Average per course', shortSeconds(each)]);
+            if (r.active && r.remaining) items.push(['Time left (estimate)', '~' + clock(r.remaining * each)]);
+        }
+        if (r.active) {
+            if (r.lastStepAt) items.push(['Last progress', clock(serverNow - r.lastStepAt) + ' ago']);
+            if (r.requestStarted) {
+                items.push([r.helping ? 'This page is working' : 'Checking', clock((Date.now() - r.requestStarted) / 1000)]);
+            } else if (r.nextCheck) {
+                items.push(['Next check in', Math.max(0, Math.ceil((r.nextCheck - Date.now()) / 1000)) + ' s']);
+            }
+        }
+        els.timers.replaceChildren(...items.map(([label, value]) => {
+            const col = document.createElement('div');
+            col.className = 'col';
+            const box = document.createElement('div');
+            box.className = 'border rounded px-2 py-1 h-100';
+            const small = document.createElement('div');
+            small.className = 'small text-body-secondary';
+            small.textContent = label;
+            const big = document.createElement('div');
+            big.className = 'fw-semibold font-monospace';
+            big.textContent = value;
+            box.append(small, big);
+            col.appendChild(box);
+            return col;
+        }));
+    }
+
+    function startTimers(r) {
+        stopTimers();
+        renderTimers(r);
+        timerHandle = setInterval(() => { if (run === r) renderTimers(r); }, 1000);
+    }
+
+    function stopTimers() {
+        if (timerHandle) clearInterval(timerHandle);
+        timerHandle = null;
     }
 
     // Follow a queued run until it ends, showing its rows and counts as they arrive. The run
@@ -1111,6 +1180,9 @@ $cdWorkerFresh = $queue->workerFresh();
         const settings = view.settings || {};
         const mine = { active: true, jobId: view.id, dryRun: !!settings.dry_run, operation: settings.operation || 'deploy', results: [], counts: view.counts || {} };
         run = mine;
+        trackTimes(mine, view);
+        startTimers(mine);
+        byId('cdRunLog').href = config.apiUrl.replace(/api\.php$/, 'log.php') + '?run=' + encodeURIComponent(view.id);
         els.progressCard.classList.remove('d-none');
         els.resultsCard.classList.remove('d-none');
         els.progressBar.classList.remove('d-none');
@@ -1118,7 +1190,7 @@ $cdWorkerFresh = $queue->workerFresh();
         els.cancel.classList.remove('d-none');
         els.cancel.disabled = false;
         els.progressTitle.textContent = runLabel(mine) + (DeployActive.includes(view.status) ? ' in progress' : '');
-        els.progressStatus.textContent = 'Loading…';
+        els.progressStatus.textContent = DeployActive.includes(view.status) ? 'Starting…' : 'Loading the results…';
         els.runNotes.replaceChildren(...(view.notes || []).map((note) => {
             const li = document.createElement('li');
             li.textContent = note;
@@ -1131,8 +1203,14 @@ $cdWorkerFresh = $queue->workerFresh();
         let failures = 0;
         while (run === mine && mine.active) {
             let current;
+            mine.requestStarted = Date.now();
+            mine.nextCheck = 0;
+            renderTimers(mine);
             try {
                 current = await post('job_status', { job_id: mine.jobId, from: String(mine.results.length), help: '1' });
+                mine.requestStarted = 0;
+                trackTimes(mine, current);
+                renderTimers(mine);
                 failures = 0;
                 els.runError.classList.add('d-none');
             } catch (error) {
@@ -1142,7 +1220,9 @@ $cdWorkerFresh = $queue->workerFresh();
                     return;
                 }
                 // A gateway timeout or dropped connection loses nothing: the run is on the server.
+                mine.requestStarted = 0;
                 failures++;
+                mine.nextCheck = Date.now() + Math.min(15000, 2000 * failures);
                 els.runError.textContent = 'Lost contact with the server (' + (error.message || 'no reply') + '). The run is kept on the server; trying again…';
                 els.runError.classList.remove('d-none');
                 await sleep(Math.min(15000, 2000 * failures));
@@ -1155,7 +1235,11 @@ $cdWorkerFresh = $queue->workerFresh();
             const moreRows = mine.results.length < current.results_total;
             if (DeployActive.includes(current.status)) {
                 els.progressStatus.textContent = statusText(current);
-                if (!moreRows) await sleep(current.helped ? 300 : 2500);
+                if (!moreRows) {
+                    const wait = current.helped ? 300 : 2500;
+                    mine.nextCheck = Date.now() + wait;
+                    await sleep(wait);
+                }
                 continue;
             }
             if (moreRows) continue;

@@ -51,10 +51,15 @@ $audit = static function (string $event, array $data) use ($appConfig): void {
     if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) {
         return;
     }
-    @file_put_contents($dir . '/audit.log', json_encode([
+    $file = $dir . '/audit.log';
+    // Keep one older file: past 20 MB, audit.log becomes audit.log.1.
+    if (@filesize($file) > 20 * 1024 * 1024) {
+        @rename($file, $file . '.1');
+    }
+    @file_put_contents($file, json_encode([
         'at' => gmdate('c'),
         'event' => $event,
-        'ip' => (string)($_SERVER['REMOTE_ADDR'] ?? ''),
+        'ip' => (string)($_SERVER['REMOTE_ADDR'] ?? (PHP_SAPI === 'cli' ? 'cli' : '')),
     ] + $data, JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
 };
 
@@ -69,8 +74,9 @@ $makeEngine = static function (array &$store, array $lti = []) use ($appConfig, 
         static function (string $event, array $data) use ($audit): void {
             $audit($event, $data);
         },
-        static function (string $message, array $context): void {
-            error_log('canvas_automations: ' . $message . ' ' . json_encode($context, JSON_UNESCAPED_SLASHES));
+        static function (string $message, array $context) use ($audit): void {
+            // Each course's result goes to audit.log with the run it belongs to.
+            $audit(...($message === 'Canvas deploy course result' ? ['course_result', $context] : ['engine', $context + ['message' => $message]]));
         }
     ))->forQueue();
 };
@@ -78,5 +84,8 @@ $makeEngine = static function (array &$store, array $lti = []) use ($appConfig, 
 $queue = new CanvasAutomations\DeployQueue(
     rtrim($appConfig['data_dir'], '/\\') . '/queue',
     CanvasAutomations\DeployQueue::key($appConfig['queue_key'], $appConfig['data_dir']),
-    static fn(array &$store): CanvasAutomations\CanvasDeployRun => $makeEngine($store)
+    static fn(array &$store): CanvasAutomations\CanvasDeployRun => $makeEngine($store),
+    null,
+    null,
+    $audit
 );

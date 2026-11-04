@@ -1102,21 +1102,27 @@ $cdWorkerFresh = $queue->workerFresh();
     function workerText(view) {
         return view.worker_fresh
             ? 'The server worker is running the queue, so you can close this tab.'
-            : 'No server worker is running, so open pages move the queue along, one run at a time. Keep this page open.';
+            : 'No server worker is running, so the queue only moves while a page like this one is open. Keep it open.';
     }
 
     function statusText(view) {
         const counts = view.counts || {};
         const parts = [];
-        if (view.cancelling) parts.push('Cancelling…');
-        else if (view.ahead) {
-            const size = view.ahead_courses === null
-                ? ' (a whole term or account, so its size is not known yet)'
-                : ' (about ' + view.ahead_courses + ' course' + (view.ahead_courses === 1 ? '' : 's') + ' left' + (view.ahead_seconds !== null ? (view.ahead_seconds < 60 ? ', under a minute' : ', roughly ' + Math.round(view.ahead_seconds / 60) + ' min') : '') + ')';
-            parts.push('Waiting: ' + view.ahead + ' run' + (view.ahead === 1 ? '' : 's') + ' ahead of this one' + size + '. Runs go one at a time, in the order they were started.');
+        if (view.cancelling) {
+            parts.push('Cancelling: it stops after the current step. Courses already done stay done.');
+        } else if (view.status === 'queued') {
+            parts.push('Queued: this run will start on its own when its turn comes, unless you cancel it.');
+            if (view.ahead) {
+                const size = view.ahead_courses === null
+                    ? ' (a whole term or account, so its size is not known yet)'
+                    : ' (about ' + view.ahead_courses + ' course' + (view.ahead_courses === 1 ? '' : 's') + ' left' + (view.ahead_seconds !== null ? (view.ahead_seconds < 60 ? ', under a minute' : ', roughly ' + Math.round(view.ahead_seconds / 60) + ' min') : '') + ')';
+                parts.push(view.ahead + ' run' + (view.ahead === 1 ? ' is' : 's are') + ' ahead of it' + size + '; runs go one at a time, in the order they were started.');
+            } else {
+                parts.push('It is next in line.');
+            }
+        } else {
+            parts.push('Running: ' + (counts.processed || 0) + ' courses done so far. Cancel stops it after the current step; courses already done stay done.');
         }
-        else if (view.status === 'queued') parts.push('Next in line, starting shortly.');
-        else parts.push('Processed ' + (counts.processed || 0) + ' courses so far.');
         if (view.errors && view.message) parts.push('The last step failed (' + view.message + '); it is tried again.');
         parts.push(workerText(view));
         return parts.join(' ');
@@ -1220,7 +1226,7 @@ $cdWorkerFresh = $queue->workerFresh();
         els.progressBar.classList.remove('d-none');
         els.runError.classList.add('d-none');
         els.cancel.classList.remove('d-none');
-        els.cancel.disabled = false;
+        setCancelButton(view);
         els.progressTitle.textContent = runLabel(mine) + (DeployActive.includes(view.status) ? ' in progress' : '');
         els.progressStatus.textContent = DeployActive.includes(view.status) ? 'Starting…' : 'Loading the results…';
         els.runNotes.replaceChildren(...(view.notes || []).map((note) => {
@@ -1267,6 +1273,7 @@ $cdWorkerFresh = $queue->workerFresh();
             const moreRows = mine.results.length < current.results_total;
             if (DeployActive.includes(current.status)) {
                 els.progressStatus.textContent = statusText(current);
+                setCancelButton(current);
                 if (!moreRows) {
                     const wait = current.helped ? 300 : 2500;
                     mine.nextCheck = Date.now() + wait;
@@ -1277,20 +1284,31 @@ $cdWorkerFresh = $queue->workerFresh();
             if (moreRows) continue;
             const label = runLabel(mine);
             const titles = { done: label + ' complete', cancelled: label + ' cancelled', failed: label + ' stopped', expired: label + ' expired' };
-            endRun(
-                titles[current.status] || label + ' ended',
-                (current.status === 'done' ? 'Finished: ' : 'Stopped after ') + (mine.counts.processed || 0) + ' courses checked. '
-                    + (current.message ? current.message + ' ' : '') + 'Review the results below or download the CSV.'
-            );
+            const checked = mine.counts.processed || 0;
+            let message;
+            if (current.status === 'cancelled') {
+                message = checked
+                    ? 'Cancelled after ' + checked + ' courses. Those courses keep their changes; the rest were not touched. Review the results below or download the CSV.'
+                    : 'Cancelled before it started. Nothing was changed in Canvas.';
+            } else {
+                message = (current.status === 'done' ? 'Finished: ' : 'Stopped after ') + checked + ' courses checked. '
+                    + (current.message ? current.message + ' ' : '') + 'Review the results below or download the CSV.';
+            }
+            endRun(titles[current.status] || label + ' ended', message);
             return;
         }
     }
     const DeployActive = ['queued', 'running'];
 
+    function setCancelButton(view) {
+        els.cancel.textContent = view.status === 'queued' ? 'Cancel this queued run' : 'Cancel run';
+        els.cancel.disabled = !!view.cancelling;
+    }
+
     els.cancel.addEventListener('click', async () => {
         if (!run || !run.active) return;
         els.cancel.disabled = true;
-        els.progressStatus.textContent = 'Cancelling…';
+        els.progressStatus.textContent = run.status === 'queued' ? 'Cancelling: it will not run.' : 'Cancelling: it stops after the current step. Courses already done stay done.';
         try {
             await post('job_cancel', { job_id: run.jobId });
         } catch (error) {
@@ -1312,7 +1330,7 @@ $cdWorkerFresh = $queue->workerFresh();
     }
 
     const STATUS_BADGE = {
-        queued: ['Queued', 'text-bg-secondary'], running: ['Running', 'text-bg-primary'], done: ['Done', 'text-bg-success'],
+        queued: ['Queued: runs unless cancelled', 'text-bg-secondary'], running: ['Running', 'text-bg-primary'], done: ['Done', 'text-bg-success'],
         cancelled: ['Cancelled', 'text-bg-warning'], failed: ['Stopped', 'text-bg-danger'], expired: ['Expired', 'text-bg-warning'],
     };
 
@@ -1343,6 +1361,30 @@ $cdWorkerFresh = $queue->workerFresh();
             view.textContent = 'View';
             view.addEventListener('click', () => openJob(job.id));
             side.append(badge, view);
+            if (DeployActive.includes(job.status)) {
+                // Two clicks, so a stray click does not stop someone's run.
+                const stop = document.createElement('button');
+                stop.type = 'button';
+                stop.className = 'btn btn-link btn-sm p-0 d-block text-danger';
+                stop.textContent = 'Cancel';
+                stop.addEventListener('click', async () => {
+                    if (stop.dataset.armed !== '1') {
+                        stop.dataset.armed = '1';
+                        stop.textContent = 'Click again to cancel';
+                        setTimeout(() => { stop.dataset.armed = ''; stop.textContent = 'Cancel'; }, 4000);
+                        return;
+                    }
+                    stop.disabled = true;
+                    stop.textContent = 'Cancelling…';
+                    try {
+                        await post('job_cancel', { job_id: job.id });
+                    } catch (error) {
+                        showAlert(els.connection, 'warning', 'Could not cancel: ' + (error.message || 'no reply'));
+                    }
+                    loadJobs('session_jobs');
+                });
+                side.append(stop);
+            }
             li.append(text, side);
             return li;
         }));

@@ -100,6 +100,10 @@ the queue along). With it, runs carry on with the tab closed.
       `course_result` per course, `run_ended` with `"status":"done"`.
 - [ ] With the task running: start a dry run on several courses, **close the tab**, wait a
       minute, open the page again and connect. **Your runs** shows it; **View** shows its results.
+- [ ] Cancel works: start a dry run on several courses, start a second one from another
+      browser (it shows "Queued: this run will start on its own ... unless you cancel it"),
+      click **Cancel this queued run** on the second, then **Cancel** twice under Your runs on
+      the first. Both end as cancelled, and each run's log has `run_cancel_requested`.
 - [ ] Real run on **one course**. In Canvas, check that course: the SLO Cloud tab in course
       navigation (instructors only) and the unpublished "SLO Cloud" module.
 - [ ] No repeated "Lost contact with the server" messages. One now and then is fine; the run

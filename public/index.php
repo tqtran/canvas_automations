@@ -1090,6 +1090,15 @@ $cdWorkerFresh = $queue->workerFresh();
         if (view.cancelling) parts.push('Cancelling…');
         else if (view.status === 'queued') parts.push('Waiting for its first turn.');
         else parts.push('Processed ' + (counts.processed || 0) + ' courses so far.');
+        if (view.course_seconds) {
+            const each = view.course_seconds + ((view.settings || {}).course_delay_ms || 0) / 1000;
+            let pace = 'About ' + each.toFixed(1) + ' s per course';
+            if (typeof view.remaining === 'number' && view.remaining > 0) {
+                const minutes = Math.ceil(view.remaining * each / 60);
+                pace += ', ' + view.remaining + ' left (about ' + minutes + ' min of work)';
+            }
+            parts.push(pace + '.');
+        }
         if (view.other_runs) parts.push(view.other_runs + ' other run' + (view.other_runs === 1 ? ' is' : 's are') + ' in the queue, taking turns with this one.');
         if (view.errors && view.message) parts.push('The last step failed (' + view.message + '); it is tried again.');
         parts.push(workerText(view));

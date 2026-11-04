@@ -716,7 +716,22 @@ final class CanvasDeployRun
         $processed = 0;
         $stop = 'end_of_stream';
 
+        // This run's own course times (lookup plus work, without the delay): the longest one
+        // for the look-ahead, and an average, weighted to recent courses, for time left.
+        $average = isset($run['course_seconds']) ? (float)$run['course_seconds'] : null;
+        $longest = isset($run['course_seconds_max']) ? (float)$run['course_seconds_max'] : null;
+
         while (true) {
+            // Look ahead: don't start a course if one as slow as this run's slowest so far would
+            // end past the target. At least one course per step, so a slow run still moves; and
+            // none of this once nothing is left, so the step can mark the run done.
+            if ($processed > 0 && $longest !== null && self::remaining($run) !== 0
+                && $this->now() - $started + $longest + $delay > $timeTarget) {
+                $stop = 'estimate';
+                break;
+            }
+            $itemStarted = $this->now();
+            $slept = 0.0;
             try {
                 $item = $this->nextItem($run, $client);
             } catch (CanvasDeadlineExceeded) {
@@ -742,6 +757,7 @@ final class CanvasDeployRun
                     break;
                 }
                 ($this->sleeper)($delay);
+                $slept = $delay;
             }
 
             if ($item['kind'] === 'result') {
@@ -753,6 +769,11 @@ final class CanvasDeployRun
                         ? $deployer->removeCourse($item['course'])
                         : $deployer->deployCourse($item['course']);
                     unset($run['attempts'][$courseId]);
+                    $took = max(0.0, $this->now() - $itemStarted - $slept);
+                    $average = $average === null ? $took : 0.7 * $average + 0.3 * $took;
+                    $longest = max($longest ?? 0.0, $took);
+                    $run['course_seconds'] = round($average, 3);
+                    $run['course_seconds_max'] = round($longest, 3);
                 } catch (CanvasDeadlineExceeded) {
                     $hits = ($run['attempts'][$courseId] ?? 0) + 1;
                     $run['attempts'][$courseId] = $hits;
@@ -799,7 +820,19 @@ final class CanvasDeployRun
             'results_from' => $run['results_from'],
             'counts' => $run['counts'],
             'delay_ms' => $run['settings']['course_delay_ms'],
+            'course_seconds' => $run['course_seconds'] ?? null,
+            'remaining' => self::remaining($run),
         ];
+    }
+
+    /** Courses still to do, when known: a list of course IDs is; a term or account listing is not. */
+    private static function remaining(array $run): ?int
+    {
+        return match ($run['phase']) {
+            'ids' => count($run['ids']) + count($run['queue']),
+            'done' => count($run['queue']),
+            default => null,
+        };
     }
 
     public function finish(string $runId, string $runKey, bool $cancelled): array

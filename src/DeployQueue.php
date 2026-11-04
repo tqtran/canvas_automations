@@ -155,6 +155,8 @@ final class DeployQueue
                 array_push($job['results'], ...array_slice($batch['results'], count($job['results']) - (int)$batch['results_from']));
                 $job['store'] = $store;
                 $job['counts'] = $batch['counts'];
+                $job['course_seconds'] = $batch['course_seconds'];
+                $job['remaining'] = $batch['remaining'];
                 $job['status'] = 'running';
                 $job['errors'] = 0;
                 $job['message'] = '';
@@ -372,6 +374,9 @@ final class DeployQueue
             'results_total' => count($job['results']),
             'errors' => $job['errors'],
             'message' => $job['message'],
+            // This run's average seconds per course, and courses left when that is known.
+            'course_seconds' => $job['course_seconds'] ?? null,
+            'remaining' => in_array($job['status'], self::ACTIVE, true) ? ($job['remaining'] ?? null) : 0,
         ];
     }
 

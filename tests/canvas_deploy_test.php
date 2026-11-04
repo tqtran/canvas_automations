@@ -419,6 +419,36 @@ foreach ($batches as $batch) {
 }
 $service->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
 
+// Look ahead with this run's slowest course so far: a step doesn't start a course that slow
+// if it would end past the target, but always does at least one.
+$clock = new FakeClock();
+$canvas = new FakeCanvas(FakeCanvas::scenario(['fresh_courses' => 0]), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
+$store = [];
+$service = $newService($store, $canvas, $clock);
+$started = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001,1002,1003,1004,1008,1009,1010,1011', 'course_delay_ms' => '100']));
+$steps = [];
+for ($i = 0; $i < 30; $i++) {
+    $step = $service->batch($started['body']['run_id'], $started['body']['run_key'], null, 1.5, 10.0);
+    $steps[] = $step;
+    if ($step['done']) {
+        break;
+    }
+}
+$reasons = array_column($steps, 'stop_reason');
+$average = (float)end($steps)['course_seconds'];
+$longest = (float)($store['run']['course_seconds_max'] ?? 0);
+$check(in_array('estimate', $reasons, true) && $average > 0 && $longest >= $average && end($steps)['remaining'] === 0,
+    'Steps did not end on the per-run estimate: ' . implode(',', $reasons) . ' avg ' . $average . ' max ' . $longest);
+foreach ($steps as $index => $step) {
+    $check($step['processed'] >= 1, 'A step did no course at all.');
+    if ($index > 0 && $step['processed'] > 1) {
+        $check($step['elapsed_ms'] / 1000 <= 1.5, 'A step ran past its target: ' . $step['elapsed_ms'] . ' ms.');
+    }
+}
+$check(array_sum(array_column($steps, 'processed')) === 8, 'The look-ahead skipped or repeated courses.');
+$check($steps[0]['remaining'] === 8 - $steps[0]['processed'], 'Courses left was not counted.');
+$service->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
+
 // A batch reply that never reaches the page loses no rows: rows the page has not confirmed
 // are sent again, and the page ends with one row per course counted.
 $clock = new FakeClock();

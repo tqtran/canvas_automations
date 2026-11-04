@@ -30,13 +30,46 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Deploy to Canvas</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <!-- AdminLTE 4 (includes Bootstrap 5.3 styles), its font, and Bootstrap Icons. -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/source-sans-3@5.0.12/index.css" integrity="sha384-oXLoUoB5XFLG2VXaPgirj0OzzF7JWUf+9DRdQ4TnfpOxIdWCy0EbfR8h9WeYPvK9" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@4.10.0/dist/css/adminlte.min.css" integrity="sha384-UqRR9PaoK16nbf42Sqcd4FbL2CkbpbZuBJK7HfJZBUhZINJzdCZG/6lFkXWJZoB/" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        /* Sidebar links jump to cards; keep them clear of the sticky header. */
+        .app-content .card { scroll-margin-top: 4.5rem; }
+    </style>
 </head>
-<body class="bg-body-tertiary">
-<nav class="navbar bg-body border-bottom mb-2">
-    <div class="container"><span class="navbar-brand mb-0 h1"><i class="bi bi-cloud-upload me-2" aria-hidden="true"></i>Deploy to Canvas</span></div>
+<body class="layout-fixed fixed-header sidebar-expand-lg bg-body-tertiary">
+<div class="app-wrapper">
+<nav class="app-header navbar navbar-expand bg-body">
+    <div class="container-fluid">
+        <ul class="navbar-nav">
+            <li class="nav-item">
+                <a class="nav-link" data-lte-toggle="sidebar" href="#" role="button" aria-label="Show or hide the menu"><i class="bi bi-list" aria-hidden="true"></i></a>
+            </li>
+            <li class="nav-item d-none d-md-block"><span class="nav-link fw-semibold">Deploy to Canvas</span></li>
+        </ul>
+    </div>
 </nav>
+<aside class="app-sidebar bg-body-secondary shadow" data-bs-theme="dark">
+    <div class="sidebar-brand">
+        <a href="index.php" class="brand-link">
+            <i class="bi bi-cloud-upload fs-4 ms-2 me-2" aria-hidden="true"></i>
+            <span class="brand-text fw-light">SLO Cloud</span>
+        </a>
+    </div>
+    <div class="sidebar-wrapper">
+        <nav class="mt-2" aria-label="Page sections">
+            <ul class="nav sidebar-menu flex-column" role="list">
+                <li class="nav-item"><a href="#cdTop" class="nav-link active"><i class="nav-icon bi bi-cloud-upload" aria-hidden="true"></i><p>Deploy to Canvas</p></a></li>
+                <li class="nav-item d-none" id="cdNavJobs"><a href="#cdJobsAnchor" class="nav-link"><i class="nav-icon bi bi-clock-history" aria-hidden="true"></i><p>Your runs</p></a></li>
+                <li class="nav-item"><a href="#cdServerCard" class="nav-link"><i class="nav-icon bi bi-hdd-network" aria-hidden="true"></i><p>Server checks</p></a></li>
+                <li class="nav-item"><a href="#cdAboutCard" class="nav-link"><i class="nav-icon bi bi-info-circle" aria-hidden="true"></i><p>What gets installed</p></a></li>
+            </ul>
+        </nav>
+    </div>
+</aside>
+<main class="app-main" id="cdTop">
 <!-- canvas-deploy:view -->
 <?php
 $h = static fn(mixed $value): string => htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
@@ -53,7 +86,21 @@ if ($cdDataOk) {
 }
 $cdWorkerFresh = $queue->workerFresh();
 ?>
-<div class="container my-4">
+<div class="app-content-header">
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-sm-6"><h1 class="h3 mb-0">Deploy to Canvas</h1></div>
+            <div class="col-sm-6">
+                <ol class="breadcrumb float-sm-end mb-0">
+                    <li class="breadcrumb-item">SLO Cloud</li>
+                    <li class="breadcrumb-item active" aria-current="page">Deploy to Canvas</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="app-content">
+<div class="container-fluid">
 <p class="lead">Install the SLO Cloud LTI 1.1 tool in your Canvas courses. Connect with your Canvas API token, then choose the courses. Only what a course is missing is added, so this can be run again at any time.</p>
 
 <div class="row g-4">
@@ -104,7 +151,7 @@ $cdWorkerFresh = $queue->workerFresh();
                     </div>
                 </div>
             </div>
-            <div class="card mb-4">
+            <div class="card card-primary card-outline mb-4">
                 <div class="card-header">
                     <h2 class="card-title d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-primary">2</span> Connect to Canvas</h2>
                 </div>
@@ -138,7 +185,7 @@ $cdWorkerFresh = $queue->workerFresh();
             </div>
 
             <div id="cdAfterConnect" class="d-none">
-            <div class="card mb-4" id="cdCoursesCard">
+            <div class="card card-primary card-outline mb-4" id="cdCoursesCard">
                 <div class="card-header">
                     <h2 class="card-title d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-primary">3</span> Choose courses</h2>
                 </div>
@@ -231,7 +278,7 @@ $cdWorkerFresh = $queue->workerFresh();
                 </div>
             </div>
 
-            <div class="card mb-4">
+            <div class="card card-primary card-outline mb-4">
                 <div class="card-header">
                     <h2 class="card-title d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-primary">4</span> What to install</h2>
                 </div>
@@ -279,7 +326,7 @@ $cdWorkerFresh = $queue->workerFresh();
                 </div>
             </div>
 
-            <div class="card mb-4">
+            <div class="card card-primary card-outline mb-4">
                 <div class="card-header">
                     <h2 class="card-title d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-primary">5</span> Review and run</h2>
                 </div>
@@ -314,7 +361,7 @@ $cdWorkerFresh = $queue->workerFresh();
             </div>
         </form>
 
-        <div class="card mb-4 d-none" id="cdProgressCard">
+        <div class="card card-success card-outline mb-4 d-none" id="cdProgressCard">
             <div class="card-header">
                 <h2 class="card-title" id="cdProgressTitle" tabindex="-1">Run in progress</h2>
             </div>
@@ -334,7 +381,7 @@ $cdWorkerFresh = $queue->workerFresh();
             </div>
         </div>
 
-        <div class="card mb-4 d-none" id="cdResultsCard">
+        <div class="card card-outline card-secondary mb-4 d-none" id="cdResultsCard">
             <div class="card-header">
                 <h2 class="card-title">Results</h2>
             </div>
@@ -371,7 +418,8 @@ $cdWorkerFresh = $queue->workerFresh();
     </div>
 
     <div class="col-xl-4">
-        <div class="card mb-4 d-none" id="cdJobsCard">
+        <span id="cdJobsAnchor"></span>
+        <div class="card card-outline card-secondary mb-4 d-none" id="cdJobsCard">
             <div class="card-header">
                 <h2 class="card-title">Your runs</h2>
             </div>
@@ -380,7 +428,7 @@ $cdWorkerFresh = $queue->workerFresh();
                 <p class="form-text mb-0">Runs started from this browser, and after you connect, every run started with your Canvas account. Finished runs are kept for 7 days.</p>
             </div>
         </div>
-        <div class="card mb-4">
+        <div class="card card-outline card-secondary mb-4" id="cdServerCard">
             <div class="card-header">
                 <h2 class="card-title">Server checks</h2>
             </div>
@@ -418,7 +466,7 @@ $cdWorkerFresh = $queue->workerFresh();
                 </ul>
             </div>
         </div>
-        <div class="card mb-4">
+        <div class="card card-outline card-info mb-4" id="cdAboutCard">
             <div class="card-header">
                 <h2 class="card-title">What gets installed</h2>
             </div>
@@ -434,6 +482,12 @@ $cdWorkerFresh = $queue->workerFresh();
         </div>
     </div>
 </div>
+</div>
+</div>
+</main>
+<footer class="app-footer small">
+    <span class="text-body-secondary">Deploy to Canvas · installs the SLO Cloud LTI 1.1 tool in Canvas courses.</span>
+</footer>
 </div>
 
 <script>
@@ -1153,6 +1207,21 @@ $cdWorkerFresh = $queue->workerFresh();
         r.aheadAt = Date.now();
     }
 
+    const TIMER_ICONS = {
+        'Elapsed': ['bi-stopwatch', 'text-bg-primary'],
+        'Waiting for a turn': ['bi-hourglass-split', 'text-bg-secondary'],
+        'Ahead of this run': ['bi-people', 'text-bg-secondary'],
+        'Wait (estimate)': ['bi-hourglass', 'text-bg-warning'],
+        'Courses checked': ['bi-check2-square', 'text-bg-success'],
+        'Average per course': ['bi-speedometer2', 'text-bg-info'],
+        'Time left (estimate)': ['bi-flag', 'text-bg-warning'],
+        'Last progress': ['bi-activity', 'text-bg-secondary'],
+        'This page is working': ['bi-gear', 'text-bg-primary'],
+        'Helping the queue': ['bi-gear', 'text-bg-primary'],
+        'Checking': ['bi-arrow-repeat', 'text-bg-secondary'],
+        'Next check in': ['bi-arrow-repeat', 'text-bg-secondary'],
+    };
+
     function renderTimers(r) {
         if (!r || !r.createdAt) { els.timers.replaceChildren(); return; }
         const serverNow = Date.now() / 1000 - (r.offset || 0);
@@ -1185,17 +1254,28 @@ $cdWorkerFresh = $queue->workerFresh();
             }
         }
         els.timers.replaceChildren(...items.map(([label, value]) => {
+            // AdminLTE info box: a coloured icon, the label, and the value.
+            const [icon, colour] = TIMER_ICONS[label] || ['bi-clock', 'text-bg-secondary'];
             const col = document.createElement('div');
             col.className = 'col';
             const box = document.createElement('div');
-            box.className = 'border rounded px-2 py-1 h-100';
-            const small = document.createElement('div');
-            small.className = 'small text-body-secondary';
-            small.textContent = label;
-            const big = document.createElement('div');
-            big.className = 'fw-semibold font-monospace';
-            big.textContent = value;
-            box.append(small, big);
+            box.className = 'info-box mb-0 h-100';
+            const iconBox = document.createElement('span');
+            iconBox.className = 'info-box-icon shadow-sm ' + colour;
+            const i = document.createElement('i');
+            i.className = 'bi ' + icon;
+            i.setAttribute('aria-hidden', 'true');
+            iconBox.appendChild(i);
+            const content = document.createElement('div');
+            content.className = 'info-box-content';
+            const text = document.createElement('span');
+            text.className = 'info-box-text';
+            text.textContent = label;
+            const number = document.createElement('span');
+            number.className = 'info-box-number font-monospace';
+            number.textContent = value;
+            content.append(text, number);
+            box.append(iconBox, content);
             col.appendChild(box);
             return col;
         }));
@@ -1336,6 +1416,7 @@ $cdWorkerFresh = $queue->workerFresh();
 
     function renderJobs(jobs) {
         els.jobsCard.classList.toggle('d-none', !jobs.length);
+        byId('cdNavJobs').classList.toggle('d-none', !jobs.length);
         els.jobsList.replaceChildren(...jobs.map((job) => {
             const settings = job.settings || {};
             const li = document.createElement('li');
@@ -1508,9 +1589,21 @@ $cdWorkerFresh = $queue->workerFresh();
     form.addEventListener('change', () => { resetDeployConfirm(); syncScope(); });
     syncScope();
     loadJobs('session_jobs');
+
+    // Sidebar links jump to a card: mark the one picked, and on a phone close the menu
+    // (what AdminLTE's own collapse does) so the card is not hidden behind it.
+    document.querySelectorAll('.app-sidebar .nav-link').forEach((link) => link.addEventListener('click', () => {
+        document.querySelectorAll('.app-sidebar .nav-link.active').forEach((other) => other.classList.remove('active'));
+        link.classList.add('active');
+        if (document.body.classList.contains('sidebar-open')) {
+            document.body.classList.remove('sidebar-open');
+            document.body.classList.add('sidebar-collapse');
+        }
+    }));
 })();
 </script>
 <!-- /canvas-deploy:view -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.10.0/dist/js/adminlte.min.js" integrity="sha384-4ah0JNKzuIoSs74l3UZo0AC1jFbROkz6/LiwEuWtTBIHy53qLxRCg5ePPP05KLq1" crossorigin="anonymous"></script>
 </body>
 </html>

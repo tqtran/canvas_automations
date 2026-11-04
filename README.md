@@ -39,6 +39,10 @@ A Canvas account-admin token also gets the term / all active / all courses optio
 
 PHP 8.2 or newer with the `curl` or `openssl` extension, and `mbstring`.
 
+The page uses AdminLTE 4.10 (with Bootstrap 5.3.8), Bootstrap Icons and the Source Sans 3
+font, loaded by the browser from cdn.jsdelivr.net with integrity checks; the server itself
+does not need to reach the CDN.
+
 ### Setup
 
 Step by step for a Windows/IIS server, with commands: [docs/DEPLOY_CHECKLIST.md](docs/DEPLOY_CHECKLIST.md).

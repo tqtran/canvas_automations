@@ -141,8 +141,9 @@ $cdWorkerFresh = $queue->workerFresh();
                     <div class="d-none" id="cdConnectedBar">
                         <div class="alert alert-success d-flex flex-wrap justify-content-between align-items-center gap-2 mb-0">
                             <span id="cdConnectedText" role="status" aria-live="polite"><i class="bi bi-check-circle-fill me-2" aria-hidden="true"></i><strong>Connected</strong></span>
-                            <button type="button" class="btn btn-outline-success btn-sm" id="cdLogout"><i class="bi bi-box-arrow-right me-1" aria-hidden="true"></i>Log out</button>
+                            <button type="button" class="btn btn-outline-success btn-sm" id="cdLogout" aria-describedby="cdLogoutHelp"><i class="bi bi-box-arrow-right me-1" aria-hidden="true"></i>Log out</button>
                         </div>
+                        <div class="form-text" id="cdLogoutHelp">Log out clears your token, the shared secret and this browser's list of runs. Runs in progress keep going.</div>
                     </div>
                     <div id="cdConnectFields">
                     <div class="mb-3">
@@ -1047,7 +1048,7 @@ $cdWorkerFresh = $queue->workerFresh();
         els.scopePicked.checked = true;
         clearFieldErrors();
         setFormError('');
-        showAlert(els.connection, 'info', '');
+        showAlert(els.connection, 'info', "Logged out. Your token, the shared secret and this browser's runs were cleared. Runs in progress keep going; connect with the same Canvas account to see them.");
         renderCourses();
         syncScope();
         els.token.focus();

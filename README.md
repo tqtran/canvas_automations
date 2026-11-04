@@ -25,7 +25,9 @@ A Canvas account-admin token also gets the term / all active / all courses optio
   never written to the log.
 - Log out clears the token, the LTI shared secret and this browser's list of runs (on the
   page and on the server). Runs in progress keep going; connecting with the same Canvas
-  account shows them again. The page says so next to Log out and after logging out.
+  account shows them again. The page says so next to Log out and after logging out, and
+  then suggests deleting the token in Canvas (Account > Settings > Approved Integrations,
+  linked) if it is no longer needed.
 - People enter their own Canvas URL (prefilled from the config). It must be https, and a
   host that resolves to a private or internal address is refused, so the server cannot be
   used to reach its own network. `canvas_allowed_hosts` can limit it further.

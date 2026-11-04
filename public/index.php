@@ -1049,6 +1049,28 @@ $cdWorkerFresh = $queue->workerFresh();
         clearFieldErrors();
         setFormError('');
         showAlert(els.connection, 'info', "Logged out. Your token, the shared secret and this browser's runs were cleared. Runs in progress keep going; connect with the same Canvas account to see them.");
+        // Advise deleting the token in Canvas, linking to that Canvas's settings page.
+        const revoke = document.createElement('p');
+        revoke.className = 'mb-0 mt-2';
+        revoke.append('No longer need the token? ');
+        let settingsUrl = '';
+        try {
+            const typed = els.baseUrl.value.trim();
+            const origin = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(typed) ? typed : 'https://' + typed).origin;
+            if (/^https?:/.test(origin)) settingsUrl = origin + '/profile/settings';
+        } catch (error) { /* no usable Canvas address: no link */ }
+        if (settingsUrl) {
+            const link = document.createElement('a');
+            link.href = settingsUrl;
+            link.target = '_blank';
+            link.rel = 'noopener';
+            link.className = 'alert-link';
+            link.textContent = 'Delete it in Canvas';
+            revoke.append(link, ' under Account > Settings > Approved Integrations.');
+        } else {
+            revoke.append('Delete it in Canvas under Account > Settings > Approved Integrations.');
+        }
+        els.connection.querySelector('.alert').appendChild(revoke);
         renderCourses();
         syncScope();
         els.token.focus();

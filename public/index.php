@@ -35,12 +35,13 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@4.10.0/dist/css/adminlte.min.css" integrity="sha384-UqRR9PaoK16nbf42Sqcd4FbL2CkbpbZuBJK7HfJZBUhZINJzdCZG/6lFkXWJZoB/" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        /* Sidebar links jump to cards; keep them clear of the sticky header. */
+        /* Keep cards clear of the sticky header when the page scrolls to them. */
         .app-content .card { scroll-margin-top: 4.5rem; }
         /* The floating "Your runs" panel, bottom right (along the bottom on a phone). */
         .runs-panel { position: fixed; right: 1rem; bottom: 1rem; width: 380px; max-width: calc(100vw - 2rem); z-index: 1034; margin: 0; }
         .runs-panel #cdRunsBody { max-height: min(55vh, 520px); overflow-y: auto; }
         .runs-panel.is-folded #cdRunsBody { display: none; }
+        .runs-panel #cdRunsToggle .bi { display: inline-block; transition: transform .2s; }
         .runs-panel.is-folded #cdRunsToggle .bi { transform: rotate(180deg); }
         .app-content { padding-bottom: 6rem; }
         @media (max-width: 575.98px) {
@@ -48,36 +49,16 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
         }
     </style>
 </head>
-<body class="layout-fixed fixed-header sidebar-expand-lg bg-body-tertiary">
+<body class="layout-fixed fixed-header bg-body-tertiary">
 <div class="app-wrapper">
 <nav class="app-header navbar navbar-expand bg-body">
     <div class="container-fluid">
-        <ul class="navbar-nav">
-            <li class="nav-item">
-                <a class="nav-link" data-lte-toggle="sidebar" href="#" role="button" aria-label="Show or hide the menu"><i class="bi bi-list" aria-hidden="true"></i></a>
-            </li>
-            <li class="nav-item d-none d-md-block"><span class="nav-link fw-semibold">Deploy to Canvas</span></li>
-        </ul>
+        <span class="navbar-brand mb-0 d-flex align-items-center gap-2">
+            <i class="bi bi-cloud-upload text-primary" aria-hidden="true"></i>
+            <span>SLO Cloud</span>
+        </span>
     </div>
 </nav>
-<aside class="app-sidebar bg-body-secondary shadow" data-bs-theme="dark">
-    <div class="sidebar-brand">
-        <a href="index.php" class="brand-link">
-            <i class="bi bi-cloud-upload fs-4 ms-2 me-2" aria-hidden="true"></i>
-            <span class="brand-text fw-light">SLO Cloud</span>
-        </a>
-    </div>
-    <div class="sidebar-wrapper">
-        <nav class="mt-2" aria-label="Page sections">
-            <ul class="nav sidebar-menu flex-column" role="list">
-                <li class="nav-item"><a href="#cdTop" class="nav-link active"><i class="nav-icon bi bi-cloud-upload" aria-hidden="true"></i><p>Deploy to Canvas</p></a></li>
-                <li class="nav-item" id="cdNavJobs"><a href="#cdJobsCard" class="nav-link" id="cdNavJobsLink"><i class="nav-icon bi bi-clock-history" aria-hidden="true"></i><p>Runs and queue</p></a></li>
-                <li class="nav-item"><a href="#cdServerCard" class="nav-link"><i class="nav-icon bi bi-hdd-network" aria-hidden="true"></i><p>Server checks</p></a></li>
-                <li class="nav-item"><a href="#cdAboutCard" class="nav-link"><i class="nav-icon bi bi-info-circle" aria-hidden="true"></i><p>What gets installed</p></a></li>
-            </ul>
-        </nav>
-    </div>
-</aside>
 <main class="app-main" id="cdTop">
 <!-- canvas-deploy:view -->
 <?php
@@ -97,15 +78,7 @@ $cdWorkerFresh = $queue->workerFresh();
 ?>
 <div class="app-content-header">
     <div class="container-fluid">
-        <div class="row">
-            <div class="col-sm-6"><h1 class="h3 mb-0">Deploy to Canvas</h1></div>
-            <div class="col-sm-6">
-                <ol class="breadcrumb float-sm-end mb-0">
-                    <li class="breadcrumb-item">SLO Cloud</li>
-                    <li class="breadcrumb-item active" aria-current="page">Deploy to Canvas</li>
-                </ol>
-            </div>
-        </div>
+        <h1 class="h3 mb-0">Deploy to Canvas</h1>
     </div>
 </div>
 <div class="app-content">
@@ -1455,11 +1428,6 @@ $cdWorkerFresh = $queue->workerFresh();
         try { localStorage.setItem('cdRunsFolded', folded ? '1' : '0'); } catch (error) { /* not remembered */ }
     }
     byId('cdRunsToggle').addEventListener('click', () => setPanelFolded(!panelFolded));
-    byId('cdNavJobsLink').addEventListener('click', (event) => {
-        event.preventDefault();
-        setPanelFolded(false);
-        byId('cdRunsToggle').focus();
-    });
 
     function patchJob(view) {
         if (!view || !view.id) return;
@@ -1755,21 +1723,9 @@ $cdWorkerFresh = $queue->workerFresh();
     form.addEventListener('change', () => { resetDeployConfirm(); syncScope(); });
     syncScope();
     loadJobs('session_jobs');
-
-    // Sidebar links jump to a card: mark the one picked, and on a phone close the menu
-    // (what AdminLTE's own collapse does) so the card is not hidden behind it.
-    document.querySelectorAll('.app-sidebar .nav-link').forEach((link) => link.addEventListener('click', () => {
-        document.querySelectorAll('.app-sidebar .nav-link.active').forEach((other) => other.classList.remove('active'));
-        link.classList.add('active');
-        if (document.body.classList.contains('sidebar-open')) {
-            document.body.classList.remove('sidebar-open');
-            document.body.classList.add('sidebar-collapse');
-        }
-    }));
 })();
 </script>
 <!-- /canvas-deploy:view -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.10.0/dist/js/adminlte.min.js" integrity="sha384-4ah0JNKzuIoSs74l3UZo0AC1jFbROkz6/LiwEuWtTBIHy53qLxRCg5ePPP05KLq1" crossorigin="anonymous"></script>
 </body>
 </html>

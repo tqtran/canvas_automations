@@ -25,7 +25,11 @@ foreach (array_slice($argv, 1) as $arg) {
         $budget = (float)max(5, min(600, (int)$match[1]));
     }
 }
-@set_time_limit(0);
+// Backstop: a worker that hangs (instead of crashing) would keep the worker lock and make
+// every later run skip. Ending it releases the lock. Each step is already capped at 20 s
+// by its Canvas deadline, so this only trips if something else gets stuck. (On Windows
+// PHP counts real time here; elsewhere it counts CPU time.)
+@set_time_limit((int)$budget + 120);
 
 try {
     $summary = $queue->work($budget, 10.0, 20.0);

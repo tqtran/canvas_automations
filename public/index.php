@@ -200,7 +200,7 @@ $cdWorkerFresh = $queue->workerFresh();
                 </div>
                 <div class="card-body">
                     <fieldset class="border-0 p-0 m-0" aria-describedby="cdScopeError">
-                        <legend class="form-label fs-6">Which courses should be checked?</legend>
+                        <legend class="form-label fs-6">Which courses?</legend>
                         <div class="btn-group flex-wrap mb-3" role="group" aria-label="Where the courses come from">
                             <input class="btn-check" type="radio" name="scope" id="cdScopePicked" value="picked" checked>
                             <label class="btn btn-outline-primary" for="cdScopePicked"><i class="bi bi-list-check me-1" aria-hidden="true"></i>My courses <span class="badge text-bg-light" id="cdPickedTotal"></span></label>
@@ -1229,7 +1229,7 @@ $cdWorkerFresh = $queue->workerFresh();
         'Waiting': ['bi-hourglass-split', 'text-bg-secondary'],
         'Ahead': ['bi-people', 'text-bg-secondary'],
         'Est. wait': ['bi-hourglass', 'text-bg-warning'],
-        'Checked': ['bi-check2-square', 'text-bg-success'],
+        'Processed': ['bi-check2-square', 'text-bg-success'],
         'Per course': ['bi-speedometer2', 'text-bg-info'],
         'Est. time left': ['bi-flag', 'text-bg-warning'],
         'Last progress': ['bi-activity', 'text-bg-secondary'],
@@ -1257,7 +1257,7 @@ $cdWorkerFresh = $queue->workerFresh();
             }
         }
         const total = r.remaining !== null && r.remaining !== undefined ? r.processed + r.remaining : null;
-        items.push(['Checked', String(r.processed) + (total !== null && r.active ? ' of ' + total : '')]);
+        items.push(['Processed', String(r.processed) + (total !== null && r.active ? ' of ' + total : '')]);
         if (r.processed) {
             const each = elapsed / r.processed;
             items.push(['Per course', shortSeconds(each)]);
@@ -1384,16 +1384,16 @@ $cdWorkerFresh = $queue->workerFresh();
             if (moreRows) continue;
             const label = runLabel(mine);
             const titles = { done: label + ' complete', cancelled: label + ' cancelled', failed: label + ' stopped', expired: label + ' expired' };
-            const checked = mine.counts.processed || 0;
+            const processed = mine.counts.processed || 0;
             let message;
             if (current.status === 'cancelled') {
-                message = checked
-                    ? 'Cancelled after ' + checked + ' courses. Those keep their changes.'
+                message = processed
+                    ? 'Cancelled after ' + processed + ' courses. Those keep their changes.'
                     : 'Cancelled before it started. Nothing changed in Canvas.';
             } else {
                 message = current.status === 'done'
-                    ? 'Done. ' + checked + ' courses checked.'
-                    : 'Stopped after ' + checked + ' courses. ' + (current.message || '');
+                    ? 'Done. ' + processed + ' courses processed.'
+                    : 'Stopped after ' + processed + ' courses. ' + (current.message || '');
             }
             endRun(titles[current.status] || label + ' ended', message);
             return;
@@ -1473,7 +1473,7 @@ $cdWorkerFresh = $queue->workerFresh();
         if (!run || !run.createdAt) return '';
         const serverNow = Date.now() / 1000 - (run.offset || 0);
         const total = typeof run.remaining === 'number' ? run.processed + run.remaining : null;
-        const checked = run.processed + (total !== null ? ' of ' + total : '') + ' checked';
+        const checked = run.processed + (total !== null ? ' of ' + total : '') + ' processed';
         return run.status === 'queued'
             ? 'Waiting ' + clock(serverNow - run.createdAt) + (run.ahead ? ' · ' + run.ahead + ' ahead' : ' · next')
             : checked + ' · ' + clock((run.finishedAt || serverNow) - run.createdAt);
@@ -1573,7 +1573,7 @@ $cdWorkerFresh = $queue->workerFresh();
                 progress.id = 'cdRunLive';
                 progress.textContent = liveText();
             } else {
-                progress.textContent = ((job.counts || {}).processed || 0) + ' checked';
+                progress.textContent = ((job.counts || {}).processed || 0) + ' processed';
             }
             text.append(what, when, progress);
             const side = document.createElement('div');

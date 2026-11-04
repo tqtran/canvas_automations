@@ -91,7 +91,7 @@ started the runs. With it, runs also carry on when every page is closed.
 ## 7. Test runs
 
 - [ ] Connect with your Canvas token. Choose **one or two courses** and click **Dry run**.
-  - [ ] The timers move (Elapsed, Courses checked, Average per course).
+  - [ ] The timers move (Elapsed, Processed, Per course).
   - [ ] The status ends with "You can close this page" (or, without the task, "Keep this
         page open").
   - [ ] It ends with "Dry run complete", one result row per course.

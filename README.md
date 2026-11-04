@@ -28,6 +28,10 @@ A Canvas account-admin token also gets the term / all active / all courses optio
   account shows them again. The page says so next to Log out and after logging out, and
   then suggests deleting the token in Canvas (Account > Settings > Approved Integrations,
   linked) if it is no longer needed.
+- The browser remembers the last settings that worked (Canvas URL, launch URL, link and
+  module names, the Add options, the delay), saved on connect and on starting a run, with a
+  Forget link. Never credentials: not the token, the consumer key or the shared secret.
+  Nor Install/Remove or the course selection.
 - People enter their own Canvas URL (prefilled from the config). It must be https, and a
   host that resolves to a private or internal address is refused, so the server cannot be
   used to reach its own network. `canvas_allowed_hosts` can limit it further.

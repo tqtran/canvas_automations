@@ -164,6 +164,7 @@ $cdWorkerFresh = $queue->workerFresh();
                     <button type="button" class="btn btn-primary" id="cdTestConnection">Connect and list my courses</button>
                     </div>
                     <div id="cdConnectionStatus" class="mt-3" role="status" aria-live="polite"></div>
+                    <p class="form-text mb-0 mt-2 d-none" id="cdSavedNote">This browser remembers your Canvas URL, launch URL and run settings. Never your token, key or secret. <button type="button" class="btn btn-link btn-sm p-0 align-baseline" id="cdForgetSaved">Forget them</button></p>
                 </div>
             </div>
 
@@ -979,6 +980,7 @@ $cdWorkerFresh = $queue->workerFresh();
             const result = await post('test_connection', { base_url: els.baseUrl.value.trim(), canvas_token: els.token.value });
             const listing = await post('courses', { base_url: els.baseUrl.value.trim(), canvas_token: els.token.value });
             connectedAdmin = !!result.is_admin;
+            saveSettings();
             maxSelectable = listing.max_selectable || maxSelectable;
             setCourses(listing.courses);
             syncOperation();
@@ -1665,6 +1667,50 @@ $cdWorkerFresh = $queue->workerFresh();
         if (!quiet && unfinished && !(run && run.active)) openJob(unfinished.id);
     }
 
+    // Remembered settings: this browser keeps the last values that worked (saved on connect
+    // and on starting a run). Never credentials (token, consumer key, shared secret), nor
+    // Install/Remove or the courses: anything kept in a browser can leak.
+    const SAVED_KEY = 'cdSavedSettings';
+    const savedFields = () => ({
+        base_url: els.baseUrl.value.trim(),
+        lti_own: els.ltiOwn.checked && !els.ltiOwn.disabled,
+        lti_launch_url: els.ltiUrl.value.trim(),
+        link_name: els.linkName.value.trim(),
+        create_nav: els.createNav.checked,
+        create_module: els.createModule.checked,
+        module_name: els.moduleName.value.trim(),
+        course_delay_ms: els.delay.value.trim(),
+    });
+
+    function saveSettings() {
+        try {
+            localStorage.setItem(SAVED_KEY, JSON.stringify(savedFields()));
+            byId('cdSavedNote').classList.remove('d-none');
+        } catch (error) { /* storage blocked: nothing remembered */ }
+    }
+
+    function restoreSettings() {
+        let saved = null;
+        try { saved = JSON.parse(localStorage.getItem(SAVED_KEY) || 'null'); } catch (error) { saved = null; }
+        if (!saved || typeof saved !== 'object') return;
+        const text = (input, value) => { if (typeof value === 'string' && value !== '') input.value = value; };
+        text(els.baseUrl, saved.base_url);
+        if (saved.lti_own === true && !els.ltiOwn.disabled) els.ltiOwn.checked = true;
+        if (els.ltiOwn.checked) text(els.ltiUrl, saved.lti_launch_url);
+        text(els.linkName, saved.link_name);
+        if (typeof saved.create_nav === 'boolean') els.createNav.checked = saved.create_nav;
+        if (typeof saved.create_module === 'boolean') els.createModule.checked = saved.create_module;
+        text(els.moduleName, saved.module_name);
+        if (/^\d+$/.test(String(saved.course_delay_ms || ''))) els.delay.value = saved.course_delay_ms;
+        byId('cdSavedNote').classList.remove('d-none');
+    }
+
+    byId('cdForgetSaved').addEventListener('click', () => {
+        try { localStorage.removeItem(SAVED_KEY); } catch (error) { /* nothing to forget */ }
+        // Back to the server's defaults.
+        window.location.reload();
+    });
+
     let confirmingDeploy = false;
     function resetDeployConfirm() {
         if (!confirmingDeploy) return;
@@ -1716,6 +1762,7 @@ $cdWorkerFresh = $queue->workerFresh();
                 lti_consumer_key: els.ltiOwn.checked ? els.ltiKey.value.trim() : '',
                 lti_consumer_secret: els.ltiOwn.checked ? els.ltiSecret.value : '',
             }));
+            saveSettings();
             loadJobs('session_jobs');
             loadQueueStatus();
             follow(started, true);
@@ -1759,6 +1806,7 @@ $cdWorkerFresh = $queue->workerFresh();
     els.dryRun.addEventListener('click', () => { resetDeployConfirm(); startRun(true); });
     els.deploy.addEventListener('click', () => startRun(false));
     form.addEventListener('submit', (event) => event.preventDefault());
+    restoreSettings();
     syncLti();
     form.addEventListener('input', () => { resetDeployConfirm(); renderSummary(); });
     form.addEventListener('change', () => { resetDeployConfirm(); syncScope(); });

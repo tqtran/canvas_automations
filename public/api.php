@@ -193,6 +193,11 @@ switch ($action) {
             $response = ['status' => 200, 'body' => ['ok' => true, 'jobs' => $mine, 'worker_seen' => $queue->workerSeen()]];
         }
         break;
+    case 'logout':
+        // This browser forgets its runs; the runs themselves are untouched.
+        unset($_SESSION['canvas_jobs']);
+        $response = ['status' => 200, 'body' => ['ok' => true]];
+        break;
     case 'queue_status':
         // Counts only, for the panel everyone sees: no Canvas token needed. While no worker
         // runs, any open page also moves the queue: one short step of the first run in line

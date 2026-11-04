@@ -1016,6 +1016,24 @@ $cdWorkerFresh = $queue->workerFresh();
     });
 
     els.logout.addEventListener('click', () => {
+        // Forget everything this browser knows: the token, the secret, this session's runs
+        // (on the server too), and the results on screen. Runs in progress keep going on the
+        // server; connecting with the same Canvas account shows them again.
+        post('logout', {}).catch(() => {});
+        if (run) {
+            run.active = false;
+            run = null;
+        }
+        stopTimers();
+        els.progressCard.classList.add('d-none');
+        els.resultsCard.classList.add('d-none');
+        els.results.replaceChildren();
+        els.counts.replaceChildren();
+        els.timers.replaceChildren();
+        els.runNotes.replaceChildren();
+        renderJobs([]);
+        els.ltiSecret.value = '';
+        lockForm(false);
         els.token.value = '';
         selected.clear();
         courses = [];

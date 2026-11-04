@@ -21,8 +21,9 @@ $setting = static function (string $key, string $env, mixed $default = '') use (
 };
 
 $appConfig = [
-    'canvas.base_url' => trim((string)$setting('canvas_base_url', 'CANVAS_BASE_URL')),
-    'lti.launch_url' => trim((string)$setting('lti_launch_url', 'LTI_LAUNCH_URL')),
+    // https:// is added to either address if it was left out.
+    'canvas.base_url' => CanvasAutomations\CanvasClient::withScheme((string)$setting('canvas_base_url', 'CANVAS_BASE_URL')),
+    'lti.launch_url' => CanvasAutomations\CanvasClient::withScheme((string)$setting('lti_launch_url', 'LTI_LAUNCH_URL')),
     'lti.consumer_key' => trim((string)$setting('lti_consumer_key', 'LTI_CONSUMER_KEY')),
     'lti.consumer_secret' => (string)$setting('lti_consumer_secret', 'LTI_CONSUMER_SECRET'),
     // Optional list of Canvas hosts people may connect to, e.g. ['*.instructure.com'].

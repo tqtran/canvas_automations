@@ -77,7 +77,7 @@ $cdWorkerFresh = $queue->workerFresh();
                     <div id="cdLtiFields" class="<?= $cdServerLti ? 'd-none' : '' ?>">
                     <div class="mb-3">
                         <label for="cdLtiUrl" class="form-label">LTI launch URL</label>
-                        <input type="url" class="form-control" id="cdLtiUrl" name="lti_launch_url" autocomplete="off" spellcheck="false"
+                        <input type="text" inputmode="url" class="form-control" id="cdLtiUrl" name="lti_launch_url" autocomplete="off" spellcheck="false"
                             placeholder="https://cloud.coastline.edu/SLO" aria-describedby="cdLtiUrlError">
                         <div id="cdLtiUrlError" class="invalid-feedback"></div>
                     </div>
@@ -110,10 +110,10 @@ $cdWorkerFresh = $queue->workerFresh();
                     <div id="cdConnectFields">
                     <div class="mb-3">
                         <label for="cdBaseUrl" class="form-label">Canvas URL</label>
-                        <input type="url" class="form-control" id="cdBaseUrl" name="base_url" value="<?= $h($cdDefaults['base_url']) ?>"
+                        <input type="text" inputmode="url" class="form-control" id="cdBaseUrl" name="base_url" value="<?= $h($cdDefaults['base_url']) ?>"
                             placeholder="https://college.instructure.com" autocomplete="url" spellcheck="false" required
                             aria-describedby="cdBaseUrlHelp cdBaseUrlError">
-                        <div id="cdBaseUrlHelp" class="form-text">Your institution's Canvas address, for example https://college.instructure.com.</div>
+                        <div id="cdBaseUrlHelp" class="form-text">Your institution's Canvas address, for example college.instructure.com (https:// is added if you leave it out).</div>
                         <div id="cdBaseUrlError" class="invalid-feedback"></div>
                     </div>
                     <div class="mb-3">

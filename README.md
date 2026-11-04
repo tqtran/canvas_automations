@@ -53,6 +53,20 @@ Have Windows Task Scheduler (or cron) start the worker **every minute**. Each st
 through the queue for about 45 seconds and exits; if the last one is still going, the new one
 exits at once. Either way works:
 
+The quickest setup: in an elevated PowerShell on the web server, run
+
+```powershell
+.\bin\install-task.ps1
+```
+
+It runs the worker once to check the settings, then creates the task "Deploy to Canvas queue
+worker" (every minute, as SYSTEM; `-User DOMAIN\account` to use another account,
+`-PhpPath` if php.exe is not on PATH, `-Mode Url -Url localhost/cron.php` for the web
+worker, `-Uninstall` to remove it). The task runs `bin\run-worker.ps1`, which you can also
+run by hand; each run adds one line to `var\worker.log`.
+
+To set the task up yourself instead:
+
 - **php.exe (recommended).** Runs outside IIS and the gateway, so no web timeouts apply.
   Action: `C:\PHP\php.exe`, arguments: `C:\path\to\canvas_automations\bin\worker.php`.
   Run it as an account that can write to `var/` (or `data_dir`).

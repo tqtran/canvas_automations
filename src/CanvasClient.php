@@ -299,9 +299,19 @@ final class CanvasClient
      * plain http to this machine (loopback) outside production, which lets a
      * local mock Canvas stand in during testing without the token leaving the host.
      */
-    public static function normalizeBaseUrl(string $url): string
+    /** Adds https:// to an address typed without a scheme ("college.instructure.com"). */
+    public static function withScheme(string $url): string
     {
         $url = trim($url);
+        if ($url === '' || preg_match('#^[a-z][a-z0-9+.-]*://#i', $url)) {
+            return $url;
+        }
+        return 'https://' . ltrim($url, '/');
+    }
+
+    public static function normalizeBaseUrl(string $url): string
+    {
+        $url = self::withScheme($url);
         $parts = $url === '' ? false : parse_url($url);
         if ($parts === false || empty($parts['scheme']) || empty($parts['host'])) {
             throw new CanvasApiException('Enter the Canvas URL, for example https://college.instructure.com.', 0, 'config');

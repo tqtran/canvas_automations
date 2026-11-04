@@ -519,6 +519,9 @@ final class CanvasDeployRun
         $effective = [];
         foreach (['launch_url', 'consumer_key', 'consumer_secret'] as $key) {
             $typed = $key === 'consumer_secret' ? (string)($lti[$key] ?? '') : trim((string)($lti[$key] ?? ''));
+            if ($key === 'launch_url') {
+                $typed = CanvasClient::withScheme($typed);
+            }
             $effective[$key] = $typed !== '' ? $typed : ($key === 'consumer_secret' ? (string)($this->lti[$key] ?? '') : trim((string)($this->lti[$key] ?? '')));
         }
         $ltiErrors = [];

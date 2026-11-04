@@ -766,6 +766,17 @@ $orphan = $enqueue(['scope' => 'course', 'scope_value' => '1010']);
 $otherKey = new DeployQueue($queueDir, Encryption::generateKey(), $queueEngine, $clock, [$clock, 'sleep']);
 $check($otherKey->step($orphan['id'], 5.0, 10.0) === 'stepped' && $otherKey->view($orphan['id'])['status'] === 'failed', 'A run was not stopped when its key could not be read.');
 
+// Addresses work with or without https://.
+$check(CanvasClient::normalizeBaseUrl('coastdistrict.instructure.com') === 'https://coastdistrict.instructure.com'
+    && CanvasClient::normalizeBaseUrl(' coastdistrict.instructure.com/ ') === 'https://coastdistrict.instructure.com'
+    && CanvasClient::normalizeBaseUrl('https://coastdistrict.instructure.com') === 'https://coastdistrict.instructure.com'
+    && CanvasClient::withScheme('') === '' && CanvasClient::withScheme('http://127.0.0.1:8768') === 'http://127.0.0.1:8768',
+    'A Canvas URL without https:// was not accepted, or one with a scheme was changed.');
+$check($throws(static fn() => CanvasClient::normalizeBaseUrl('ftp://college.instructure.com'), CanvasApiException::class), 'A non-https scheme was accepted.');
+$store = [];
+$bare = $newService($store, $canvas, $clock)->forQueue()->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'dry_run' => '1', 'lti_launch_url' => preg_replace('#^https://#', '', $launch)]));
+$check($bare['status'] === 200, 'A launch URL without https:// was refused: ' . json_encode($bare['body']));
+
 // The queue key is generated once and reused.
 $keyDir = $lockRoot . '/keys';
 $made = DeployQueue::key('', $keyDir);

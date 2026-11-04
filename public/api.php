@@ -54,6 +54,11 @@ $configuredCanvas = $appConfig['canvas.base_url'];
 if (trim((string)($_POST['base_url'] ?? '')) === '') {
     $_POST['base_url'] = $configuredCanvas;
 }
+// "college.instructure.com" works as well as "https://college.instructure.com".
+$_POST['base_url'] = CanvasClient::withScheme((string)$_POST['base_url']);
+if (isset($_POST['lti_launch_url'])) {
+    $_POST['lti_launch_url'] = CanvasClient::withScheme((string)$_POST['lti_launch_url']);
+}
 $normalize = static function (string $url): string {
     try {
         return CanvasClient::normalizeBaseUrl($url);

@@ -754,6 +754,10 @@ $check($queue->view($first['id'])['status'] === 'queued' && $queue->view($first[
 $check($queue->view($second['id'])['ahead_courses'] === 3 && $queue->view($second['id'])['ahead_seconds'] > 0,
     'The work ahead (courses left in earlier runs) was not counted: ' . json_encode(array_intersect_key($queue->view($second['id']), array_flip(['ahead_courses', 'ahead_seconds']))));
 
+$status = $queue->status();
+$check($status['runs'] === 2 && $status['running'] === 0 && $status['courses'] === 5 && $status['unknown_runs'] === 0 && $status['seconds'] > 0,
+    'The queue status did not count the runs and courses waiting: ' . json_encode($status));
+
 // A page helping (no worker) steps the first run in line, even from the second run's page,
 // and never starts the second run while the first is being stepped.
 $clock->now += 1;

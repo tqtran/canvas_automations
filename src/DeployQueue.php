@@ -396,6 +396,42 @@ final class DeployQueue
         ];
     }
 
+    /**
+     * The whole queue at a glance, for everyone (counts only, nothing about who started what):
+     * unfinished runs, courses still to do in them, runs whose size is not known yet (a term
+     * or account still being listed), a rough time to clear it, and whether the worker runs.
+     */
+    public function status(): array
+    {
+        $runs = 0;
+        $running = 0;
+        $courses = 0;
+        $unknown = 0;
+        $seconds = 0.0;
+        foreach ($this->line() as $job) {
+            $runs++;
+            if ($job['status'] === 'running') {
+                $running++;
+            }
+            $left = $job['remaining'] ?? null;
+            if ($left === null) {
+                $unknown++;
+                continue;
+            }
+            $courses += (int)$left;
+            $seconds += (int)$left * ((float)($job['course_seconds'] ?? 2.0) + ($job['settings']['course_delay_ms'] ?? 0) / 1000);
+        }
+        return [
+            'runs' => $runs,
+            'running' => $running,
+            'courses' => $courses,
+            'unknown_runs' => $unknown,
+            'seconds' => (int)round($seconds),
+            'worker_fresh' => $this->workerFresh(),
+            'worker_seen' => $this->workerSeen(),
+        ];
+    }
+
     /** Recent runs started by one Canvas user, newest first, without result rows. */
     public function owned(string $origin, int $userId, int $limit = 10): array
     {

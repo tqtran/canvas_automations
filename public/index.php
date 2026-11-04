@@ -37,6 +37,15 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
     <style>
         /* Sidebar links jump to cards; keep them clear of the sticky header. */
         .app-content .card { scroll-margin-top: 4.5rem; }
+        /* The floating "Your runs" panel, bottom right (along the bottom on a phone). */
+        .runs-panel { position: fixed; right: 1rem; bottom: 1rem; width: 380px; max-width: calc(100vw - 2rem); z-index: 1034; margin: 0; }
+        .runs-panel #cdRunsBody { max-height: min(55vh, 520px); overflow-y: auto; }
+        .runs-panel.is-folded #cdRunsBody { display: none; }
+        .runs-panel.is-folded #cdRunsToggle .bi { transform: rotate(180deg); }
+        .app-content { padding-bottom: 6rem; }
+        @media (max-width: 575.98px) {
+            .runs-panel { left: .5rem; right: .5rem; bottom: .5rem; width: auto; max-width: none; }
+        }
     </style>
 </head>
 <body class="layout-fixed fixed-header sidebar-expand-lg bg-body-tertiary">
@@ -62,7 +71,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
         <nav class="mt-2" aria-label="Page sections">
             <ul class="nav sidebar-menu flex-column" role="list">
                 <li class="nav-item"><a href="#cdTop" class="nav-link active"><i class="nav-icon bi bi-cloud-upload" aria-hidden="true"></i><p>Deploy to Canvas</p></a></li>
-                <li class="nav-item d-none" id="cdNavJobs"><a href="#cdJobsAnchor" class="nav-link"><i class="nav-icon bi bi-clock-history" aria-hidden="true"></i><p>Your runs</p></a></li>
+                <li class="nav-item" id="cdNavJobs"><a href="#cdJobsCard" class="nav-link" id="cdNavJobsLink"><i class="nav-icon bi bi-clock-history" aria-hidden="true"></i><p>Runs and queue</p></a></li>
                 <li class="nav-item"><a href="#cdServerCard" class="nav-link"><i class="nav-icon bi bi-hdd-network" aria-hidden="true"></i><p>Server checks</p></a></li>
                 <li class="nav-item"><a href="#cdAboutCard" class="nav-link"><i class="nav-icon bi bi-info-circle" aria-hidden="true"></i><p>What gets installed</p></a></li>
             </ul>
@@ -418,16 +427,6 @@ $cdWorkerFresh = $queue->workerFresh();
     </div>
 
     <div class="col-xl-4">
-        <span id="cdJobsAnchor"></span>
-        <div class="card card-outline card-secondary mb-4 d-none" id="cdJobsCard">
-            <div class="card-header">
-                <h2 class="card-title">Your runs</h2>
-            </div>
-            <div class="card-body py-2">
-                <ul class="list-group list-group-flush" id="cdJobsList"></ul>
-                <p class="form-text mb-0">Runs started from this browser, and after you connect, every run started with your Canvas account. Finished runs are kept for 7 days.</p>
-            </div>
-        </div>
         <div class="card card-outline card-secondary mb-4" id="cdServerCard">
             <div class="card-header">
                 <h2 class="card-title">Server checks</h2>
@@ -485,6 +484,22 @@ $cdWorkerFresh = $queue->workerFresh();
 </div>
 </div>
 </main>
+<!-- Runs and queue: a floating panel, always on screen: the whole queue, then your runs. -->
+<section class="card card-primary card-outline shadow-lg runs-panel" id="cdJobsCard" aria-labelledby="cdRunsTitle">
+    <div class="card-header d-flex align-items-center gap-2 py-2">
+        <i class="bi bi-clock-history text-primary" aria-hidden="true"></i>
+        <h2 class="card-title fs-6 mb-0 me-auto" id="cdRunsTitle">Runs and queue <span class="small fw-normal text-body-secondary" id="cdRunsSummary"></span></h2>
+        <button type="button" class="btn btn-sm btn-outline-secondary py-0" id="cdRunsToggle" aria-expanded="true" aria-controls="cdRunsBody">
+            <i class="bi bi-chevron-down" aria-hidden="true"></i><span class="visually-hidden">Show or hide runs and queue</span>
+        </button>
+    </div>
+    <div class="card-body p-2" id="cdRunsBody">
+        <div class="callout callout-info small mb-2 py-2" id="cdQueueStatus" role="status" aria-live="polite">Checking the queue…</div>
+        <div class="small fw-semibold text-body-secondary px-1 mt-2" id="cdYourRunsHead">Your runs</div>
+        <ul class="list-group list-group-flush" id="cdJobsList"></ul>
+        <p class="form-text mb-0 px-1" id="cdYourRunsNote">Runs from this browser, and after you connect, every run started with your Canvas account. Kept for 7 days.</p>
+    </div>
+</section>
 <footer class="app-footer small">
     <span class="text-body-secondary">Deploy to Canvas · installs the SLO Cloud LTI 1.1 tool in Canvas courses.</span>
 </footer>
@@ -1151,6 +1166,7 @@ $cdWorkerFresh = $queue->workerFresh();
         lockForm(false);
         els.progressTitle.focus();
         loadJobs('session_jobs');
+        loadQueueStatus();
     }
 
     function workerText(view) {
@@ -1223,6 +1239,8 @@ $cdWorkerFresh = $queue->workerFresh();
     };
 
     function renderTimers(r) {
+        const live = byId('cdRunLive');
+        if (live && r === run) live.textContent = liveText();
         if (!r || !r.createdAt) { els.timers.replaceChildren(); return; }
         const serverNow = Date.now() / 1000 - (r.offset || 0);
         const end = r.finishedAt || serverNow;
@@ -1300,6 +1318,7 @@ $cdWorkerFresh = $queue->workerFresh();
         run = mine;
         trackTimes(mine, view);
         startTimers(mine);
+        patchJob(view);
         byId('cdRunLog').href = config.apiUrl.replace(/api\.php$/, 'log.php') + '?run=' + encodeURIComponent(view.id);
         els.progressCard.classList.remove('d-none');
         els.resultsCard.classList.remove('d-none');
@@ -1329,6 +1348,7 @@ $cdWorkerFresh = $queue->workerFresh();
                 mine.requestStarted = 0;
                 trackTimes(mine, current);
                 renderTimers(mine);
+                patchJob(current);
                 failures = 0;
                 els.runError.classList.add('d-none');
             } catch (error) {
@@ -1414,47 +1434,163 @@ $cdWorkerFresh = $queue->workerFresh();
         cancelled: ['Cancelled', 'text-bg-warning'], failed: ['Stopped', 'text-bg-danger'], expired: ['Expired', 'text-bg-warning'],
     };
 
+    // The floating panel: jobsCache holds the last list from the server, patched with live
+    // status from the run being watched, so the panel stays current between refreshes.
+    let jobsCache = [];
+    const armedCancels = new Map();
+    const narrow = () => window.matchMedia('(max-width: 575.98px)').matches;
+    let panelFolded = (() => {
+        try {
+            const saved = localStorage.getItem('cdRunsFolded');
+            if (saved !== null) return saved === '1';
+        } catch (error) { /* storage blocked: use the default */ }
+        return narrow();
+    })();
+
+    function setPanelFolded(folded) {
+        panelFolded = folded;
+        els.jobsCard.classList.toggle('is-folded', folded);
+        byId('cdRunsToggle').setAttribute('aria-expanded', folded ? 'false' : 'true');
+        try { localStorage.setItem('cdRunsFolded', folded ? '1' : '0'); } catch (error) { /* not remembered */ }
+    }
+    byId('cdRunsToggle').addEventListener('click', () => setPanelFolded(!panelFolded));
+    byId('cdNavJobsLink').addEventListener('click', (event) => {
+        event.preventDefault();
+        setPanelFolded(false);
+        byId('cdRunsToggle').focus();
+    });
+
+    function patchJob(view) {
+        if (!view || !view.id) return;
+        const known = jobsCache.find((job) => job.id === view.id);
+        const fields = { id: view.id, status: view.status, created_at: view.created_at, counts: view.counts, settings: view.settings, user_name: view.user_name, remaining: view.remaining };
+        if (known) Object.assign(known, fields); else jobsCache.unshift(fields);
+        renderJobs(jobsCache);
+    }
+
+    function liveText() {
+        if (!run || !run.createdAt) return '';
+        const serverNow = Date.now() / 1000 - (run.offset || 0);
+        const total = typeof run.remaining === 'number' ? run.processed + run.remaining : null;
+        const checked = run.processed + (total !== null ? ' of ' + total : '') + ' checked';
+        return run.status === 'queued'
+            ? 'Waiting ' + clock(serverNow - run.createdAt) + (run.ahead ? ' · ' + run.ahead + ' ahead' : ' · next')
+            : checked + ' · ' + clock((run.finishedAt || serverNow) - run.createdAt);
+    }
+
+    // The whole queue, for everyone: counts only.
+    let queueStatus = null;
+    const roughly = (seconds) => (seconds < 60 ? 'under a minute' : 'roughly ' + Math.round(seconds / 60) + ' min');
+
+    function renderPanelSummary() {
+        const mine = jobsCache.filter((job) => DeployActive.includes(job.status)).length;
+        const parts = [];
+        if (queueStatus) parts.push(queueStatus.runs ? queueStatus.runs + ' in queue' : 'queue empty');
+        if (mine) parts.push(mine + ' yours');
+        byId('cdRunsSummary').textContent = parts.length ? '· ' + parts.join(' · ') : '';
+    }
+
+    function renderQueueStatus(q) {
+        queueStatus = q;
+        const box = byId('cdQueueStatus');
+        box.classList.toggle('callout-info', q.worker_fresh);
+        box.classList.toggle('callout-warning', !q.worker_fresh);
+        const lines = [];
+        if (!q.runs) {
+            lines.push(['Queue is empty.', 'A new run starts right away.']);
+        } else {
+            let size = 'about ' + q.courses + ' course' + (q.courses === 1 ? '' : 's');
+            if (q.unknown_runs) size += (q.courses ? ', plus ' : ' and ') + q.unknown_runs + ' whole term or account run' + (q.unknown_runs === 1 ? '' : 's') + ' of unknown size';
+            if (!q.unknown_runs || q.courses) size += ', ' + roughly(q.seconds) + (q.unknown_runs ? ' for the known part' : '');
+            lines.push([q.runs + ' run' + (q.runs === 1 ? '' : 's') + ' in the queue', '(' + size + '). New runs wait their turn and go one at a time, in the order they were started.']);
+        }
+        lines.push(q.worker_fresh
+            ? ['Server worker: running.', 'Runs carry on with this page closed.']
+            : ['Server worker: not running.', 'The queue only moves while someone has this page open.']);
+        box.replaceChildren(...lines.map(([bold, rest], index) => {
+            const p = document.createElement('div');
+            if (index) p.className = 'mt-1';
+            const b = document.createElement('strong');
+            b.textContent = bold;
+            p.append(b, ' ' + rest);
+            return p;
+        }));
+        renderPanelSummary();
+    }
+
+    async function loadQueueStatus() {
+        try {
+            renderQueueStatus(await post('queue_status', {}));
+        } catch (error) {
+            byId('cdQueueStatus').textContent = 'Could not check the queue (' + (error.message || 'no reply') + ').';
+        }
+    }
+    loadQueueStatus();
+    setInterval(loadQueueStatus, 10000);
+
     function renderJobs(jobs) {
-        els.jobsCard.classList.toggle('d-none', !jobs.length);
-        byId('cdNavJobs').classList.toggle('d-none', !jobs.length);
+        jobsCache = jobs;
+        els.jobsCard.classList.toggle('is-folded', panelFolded);
+        const hasRuns = jobs.length > 0;
+        ['cdYourRunsHead', 'cdJobsList', 'cdYourRunsNote'].forEach((id) => byId(id).classList.toggle('d-none', !hasRuns));
+        renderPanelSummary();
         els.jobsList.replaceChildren(...jobs.map((job) => {
             const settings = job.settings || {};
+            const viewing = run && run.jobId === job.id;
             const li = document.createElement('li');
-            li.className = 'list-group-item px-0 d-flex justify-content-between align-items-start gap-2';
+            li.className = 'list-group-item px-2 d-flex justify-content-between align-items-start gap-2' + (viewing ? ' list-group-item-primary' : '');
             const text = document.createElement('div');
             const what = document.createElement('div');
             what.className = 'fw-semibold';
             what.textContent = (settings.dry_run ? 'Dry run: ' : '') + (settings.operation === 'remove' ? 'Remove' : 'Install') + ', ' + scopeSummary(settings);
             const when = document.createElement('div');
             when.className = 'small text-body-secondary';
-            when.textContent = new Date(job.created_at * 1000).toLocaleString() + ' · ' + ((job.counts || {}).processed || 0) + ' checked'
-                + (job.user_name ? ' · ' + job.user_name : '');
-            text.append(what, when);
+            when.textContent = new Date(job.created_at * 1000).toLocaleString() + (job.user_name ? ' · ' + job.user_name : '');
+            const progress = document.createElement('div');
+            progress.className = 'small';
+            if (viewing && run.active) {
+                progress.id = 'cdRunLive';
+                progress.textContent = liveText();
+            } else {
+                progress.textContent = ((job.counts || {}).processed || 0) + ' checked';
+            }
+            text.append(what, when, progress);
             const side = document.createElement('div');
-            side.className = 'text-end';
+            side.className = 'text-end flex-shrink-0';
             const [badgeText, badgeClass] = STATUS_BADGE[job.status] || [job.status, 'text-bg-secondary'];
             const badge = document.createElement('span');
             badge.className = 'badge ' + badgeClass;
             badge.textContent = badgeText;
-            const view = document.createElement('button');
-            view.type = 'button';
-            view.className = 'btn btn-link btn-sm p-0 d-block';
-            view.textContent = 'View';
-            view.addEventListener('click', () => openJob(job.id));
-            side.append(badge, view);
+            side.append(badge);
+            if (viewing) {
+                const note = document.createElement('div');
+                note.className = 'small text-body-secondary';
+                note.textContent = 'Viewing';
+                side.append(note);
+            } else {
+                const view = document.createElement('button');
+                view.type = 'button';
+                view.className = 'btn btn-link btn-sm p-0 d-block ms-auto';
+                view.textContent = 'View';
+                view.addEventListener('click', () => openJob(job.id));
+                side.append(view);
+            }
             if (DeployActive.includes(job.status)) {
-                // Two clicks, so a stray click does not stop someone's run.
+                // Two clicks, so a stray click does not stop someone's run. The armed state
+                // survives the panel redrawing.
                 const stop = document.createElement('button');
                 stop.type = 'button';
-                stop.className = 'btn btn-link btn-sm p-0 d-block text-danger';
-                stop.textContent = 'Cancel';
+                stop.className = 'btn btn-link btn-sm p-0 d-block ms-auto text-danger';
+                const armed = (armedCancels.get(job.id) || 0) > Date.now();
+                stop.textContent = armed ? 'Click again to cancel' : 'Cancel';
                 stop.addEventListener('click', async () => {
-                    if (stop.dataset.armed !== '1') {
-                        stop.dataset.armed = '1';
+                    if (!((armedCancels.get(job.id) || 0) > Date.now())) {
+                        armedCancels.set(job.id, Date.now() + 4000);
                         stop.textContent = 'Click again to cancel';
-                        setTimeout(() => { stop.dataset.armed = ''; stop.textContent = 'Cancel'; }, 4000);
+                        setTimeout(() => renderJobs(jobsCache), 4100);
                         return;
                     }
+                    armedCancels.delete(job.id);
                     stop.disabled = true;
                     stop.textContent = 'Cancelling…';
                     try {
@@ -1470,6 +1606,13 @@ $cdWorkerFresh = $queue->workerFresh();
             return li;
         }));
     }
+
+    // Unfinished runs not being watched still change (queued -> running -> done): refresh.
+    setInterval(() => {
+        if (jobsCache.some((job) => DeployActive.includes(job.status) && !(run && run.active && run.jobId === job.id))) {
+            loadJobs('session_jobs');
+        }
+    }, 15000);
 
     async function openJob(id) {
         try {
@@ -1543,6 +1686,7 @@ $cdWorkerFresh = $queue->workerFresh();
                 lti_consumer_secret: els.ltiOwn.checked ? els.ltiSecret.value : '',
             }));
             loadJobs('session_jobs');
+            loadQueueStatus();
             follow(started, true);
         } catch (error) {
             lockForm(false);

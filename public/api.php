@@ -193,6 +193,10 @@ switch ($action) {
             $response = ['status' => 200, 'body' => ['ok' => true, 'jobs' => $mine, 'worker_seen' => $queue->workerSeen()]];
         }
         break;
+    case 'queue_status':
+        // Counts only, for the panel everyone sees: no Canvas token needed.
+        $response = ['status' => 200, 'body' => ['ok' => true] + $queue->status()];
+        break;
     case 'session_jobs':
         $response = ['status' => 200, 'body' => ['ok' => true, 'jobs' => $queue->summaries($sessionJobs), 'worker_seen' => $queue->workerSeen()]];
         break;

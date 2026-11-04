@@ -148,7 +148,10 @@ final class DeployQueue
         }
         $lock = $this->lock($id);
         if ($lock === null) {
-            $this->log('run_step_skipped', ['id' => $id], ['by' => $by, 'reason' => 'Another step is working on this run']);
+            // Open pages all try to help, so them finding the run busy is expected: not logged.
+            if ($by !== 'page') {
+                $this->log('run_step_skipped', ['id' => $id], ['by' => $by, 'reason' => 'Another step is working on this run']);
+            }
             return 'busy';
         }
         try {

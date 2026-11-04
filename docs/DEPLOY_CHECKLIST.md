@@ -65,8 +65,8 @@ All optional; `config.local.php` needs no changes to work.
 
 ## 6. Scheduled task (recommended, not required)
 
-Without it, runs still work, but only move while someone has the page open (open pages push
-the queue along). With it, runs carry on with the tab closed.
+Without it, runs still work: any open copy of the page keeps the queue moving, whoever
+started the runs. With it, runs also carry on when every page is closed.
 
 - [ ] Create it (it runs the worker once first to check):
   ```powershell
@@ -92,8 +92,8 @@ the queue along). With it, runs carry on with the tab closed.
 
 - [ ] Connect with your Canvas token. Choose **one or two courses** and click **Dry run**.
   - [ ] The timers move (Elapsed, Courses checked, Average per course).
-  - [ ] The status says "The server worker is running the queue" (or, without the task, "open
-        pages move the queue along").
+  - [ ] The status says "You can close this tab; the run carries on" (or, without the task,
+        "Keep this page open until it finishes").
   - [ ] It ends with "Dry run complete", one result row per course.
 - [ ] Click **View this run's log**. Expect, in order: `canvas_deploy_start`, `run_queued`,
       one or more `run_step` (`"by":"worker"` with the task, `"by":"page"` without),

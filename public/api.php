@@ -194,8 +194,15 @@ switch ($action) {
         }
         break;
     case 'queue_status':
-        // Counts only, for the panel everyone sees: no Canvas token needed.
-        $response = ['status' => 200, 'body' => ['ok' => true] + $queue->status()];
+        // Counts only, for the panel everyone sees: no Canvas token needed. While no worker
+        // runs, any open page also moves the queue: one short step of the first run in line
+        // (5 s target, 14 s hard limit), whoever started it.
+        $helped = false;
+        if (($_POST['help'] ?? '') === '1' && !$queue->workerFresh()) {
+            session_write_close();
+            $helped = $queue->stepNext(5.0, 14.0, 'page') !== null;
+        }
+        $response = ['status' => 200, 'body' => ['ok' => true, 'helped' => $helped] + $queue->status()];
         break;
     case 'session_jobs':
         $response = ['status' => 200, 'body' => ['ok' => true, 'jobs' => $queue->summaries($sessionJobs), 'worker_seen' => $queue->workerSeen()]];

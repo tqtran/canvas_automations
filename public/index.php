@@ -1171,8 +1171,8 @@ $cdWorkerFresh = $queue->workerFresh();
 
     function workerText(view) {
         return view.worker_fresh
-            ? 'The server worker is running the queue, so you can close this tab.'
-            : 'No server worker is running, so the queue only moves while a page like this one is open. Keep it open.';
+            ? 'You can close this tab; the run carries on.'
+            : 'Keep this page open until it finishes; with every page closed, the queue waits.';
     }
 
     function statusText(view) {
@@ -1493,8 +1493,10 @@ $cdWorkerFresh = $queue->workerFresh();
     function renderQueueStatus(q) {
         queueStatus = q;
         const box = byId('cdQueueStatus');
-        box.classList.toggle('callout-info', q.worker_fresh);
-        box.classList.toggle('callout-warning', !q.worker_fresh);
+        // Only the queue's size matters to the person looking: this page itself keeps the
+        // queue moving when no server worker does.
+        box.classList.toggle('callout-success', !q.runs);
+        box.classList.toggle('callout-info', !!q.runs);
         const lines = [];
         if (!q.runs) {
             lines.push(['Queue is empty.', 'A new run starts right away.']);
@@ -1502,11 +1504,8 @@ $cdWorkerFresh = $queue->workerFresh();
             let size = 'about ' + q.courses + ' course' + (q.courses === 1 ? '' : 's');
             if (q.unknown_runs) size += (q.courses ? ', plus ' : ' and ') + q.unknown_runs + ' whole term or account run' + (q.unknown_runs === 1 ? '' : 's') + ' of unknown size';
             if (!q.unknown_runs || q.courses) size += ', ' + roughly(q.seconds) + (q.unknown_runs ? ' for the known part' : '');
-            lines.push([q.runs + ' run' + (q.runs === 1 ? '' : 's') + ' in the queue', '(' + size + '). New runs wait their turn and go one at a time, in the order they were started.']);
+            lines.push([q.runs + ' run' + (q.runs === 1 ? '' : 's') + ' in the queue', '(' + size + '). New runs go after ' + (q.runs === 1 ? 'it' : 'them') + ', one at a time, in the order they were started.']);
         }
-        lines.push(q.worker_fresh
-            ? ['Server worker: running.', 'Runs carry on with this page closed.']
-            : ['Server worker: not running.', 'The queue only moves while someone has this page open.']);
         box.replaceChildren(...lines.map(([bold, rest], index) => {
             const p = document.createElement('div');
             if (index) p.className = 'mt-1';
@@ -1518,15 +1517,26 @@ $cdWorkerFresh = $queue->workerFresh();
         renderPanelSummary();
     }
 
+    // The panel's check also keeps the queue moving when no server worker runs: any open
+    // page steps the first run in line (a page watching a run already does that through its
+    // own status checks, so this one only reads). Busy queue: check again within seconds;
+    // quiet queue: every 10 s.
+    let queueTimer = null;
     async function loadQueueStatus() {
+        clearTimeout(queueTimer);
+        let delay = 10000;
         try {
-            renderQueueStatus(await post('queue_status', {}));
+            const watching = !!(run && run.active);
+            const q = await post('queue_status', { help: watching ? '0' : '1' });
+            renderQueueStatus(q);
+            if (q.runs && !q.worker_fresh && !watching) delay = q.helped ? 500 : 2000;
+            if (q.helped) loadJobs('session_jobs', null, true);
         } catch (error) {
             byId('cdQueueStatus').textContent = 'Could not check the queue (' + (error.message || 'no reply') + ').';
         }
+        queueTimer = setTimeout(loadQueueStatus, delay);
     }
     loadQueueStatus();
-    setInterval(loadQueueStatus, 10000);
 
     function renderJobs(jobs) {
         jobsCache = jobs;
@@ -1622,7 +1632,7 @@ $cdWorkerFresh = $queue->workerFresh();
         }
     }
 
-    async function loadJobs(action, data) {
+    async function loadJobs(action, data, quiet) {
         let reply;
         try {
             reply = await post(action, data || {});
@@ -1630,8 +1640,9 @@ $cdWorkerFresh = $queue->workerFresh();
             return;
         }
         renderJobs(reply.jobs || []);
+        // quiet: just refresh the list (e.g. after this page helped the queue), don't jump to a run.
         const unfinished = (reply.jobs || []).find((job) => DeployActive.includes(job.status));
-        if (unfinished && !(run && run.active)) openJob(unfinished.id);
+        if (!quiet && unfinished && !(run && run.active)) openJob(unfinished.id);
     }
 
     let confirmingDeploy = false;

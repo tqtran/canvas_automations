@@ -12,9 +12,11 @@ A Canvas account-admin token also gets the term / all active / all courses optio
   in the course" is ticked, which gives them the key and secret of this run.
 - Runs go into a queue on the server and are done one at a time, first come, first served:
   a run started while another is going waits its turn, and the page shows how many runs are
-  ahead. A scheduled worker moves the queue along; while no worker is running, open pages
-  do it instead, each stepping the first run in line (about 5 seconds a step, never over 14,
-  inside a gateway's 20-second limit). Either way only one run talks to Canvas at a time.
+  ahead. A scheduled worker moves the queue along; while no worker is running, any open copy
+  of the page does it instead (whether or not that person started anything), stepping the
+  first run in line (about 5 seconds a step, never over 14, inside a gateway's 20-second
+  limit). Either way only one run talks to Canvas at a time. The page's "Runs and queue"
+  panel shows the queue's size to everyone.
   With the worker running, the tab can be closed: connecting again with the same Canvas
   token lists that person's runs. Finished runs are kept for 7 days.
 - The token stays in the browser tab, and on the server only encrypted for the length of a

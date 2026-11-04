@@ -1481,7 +1481,15 @@ $cdWorkerFresh = $queue->workerFresh();
 
     // The whole queue, for everyone: counts only.
     let queueStatus = null;
-    const roughly = (seconds) => (seconds < 60 ? 'under 1 min' : 'about ' + Math.round(seconds / 60) + ' min');
+    // A real estimate, rounded to what matters: "about 20 sec", "about 4 min", "about 1 h 20 min".
+    const roughly = (seconds) => {
+        seconds = Math.max(0, Math.round(seconds));
+        if (seconds < 5) return 'a few sec';
+        if (seconds < 55) return 'about ' + Math.max(10, Math.round(seconds / 10) * 10) + ' sec';
+        const minutes = Math.round(seconds / 60);
+        if (minutes < 60) return 'about ' + minutes + ' min';
+        return 'about ' + Math.floor(minutes / 60) + ' h' + (minutes % 60 ? ' ' + (minutes % 60) + ' min' : '');
+    };
 
     function renderPanelSummary() {
         const mine = jobsCache.filter((job) => DeployActive.includes(job.status)).length;

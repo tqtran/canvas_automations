@@ -319,7 +319,8 @@ final class CanvasDeployRun
                         'consumer_secret' => (string)($input['lti_consumer_secret'] ?? ''),
                     ]));
                 case 'run_batch':
-                    return self::ok($this->batch((string)($input['run_id'] ?? ''), (string)($input['run_key'] ?? '')));
+                    $received = isset($input['received']) && is_numeric($input['received']) ? max(0, (int)$input['received']) : null;
+                    return self::ok($this->batch((string)($input['run_id'] ?? ''), (string)($input['run_key'] ?? ''), $received));
                 case 'run_finish':
                     return self::ok($this->finish((string)($input['run_id'] ?? ''), (string)($input['run_key'] ?? ''), false));
                 case 'run_cancel':
@@ -647,12 +648,26 @@ final class CanvasDeployRun
         return ['run_id' => $runId, 'run_key' => $runKey, 'notes' => $notes, 'account_tool' => $accountTool];
     }
 
-    public function batch(string $runId, string $runKey): array
+    /**
+     * $received is how many result rows the page already has. Rows it has not confirmed are
+     * sent again, so a reply lost on the way (a proxy timeout, a dropped connection) loses
+     * no rows. Without it, every row sent before is taken as received.
+     */
+    public function batch(string $runId, string $runKey, ?int $received = null): array
     {
         $started = $this->now();
         $run = &$this->loadRun($runId);
         $token = $this->decryptToken($run, $runKey);
         $this->touchLock($runId);
+
+        // Runs started before unconfirmed rows were kept have no such keys yet.
+        $run += ['results_from' => 0, 'unconfirmed' => []];
+        $sent = $run['results_from'] + count($run['unconfirmed']);
+        $confirmed = min($received ?? $sent, $sent) - $run['results_from'];
+        if ($confirmed > 0) {
+            array_splice($run['unconfirmed'], 0, $confirmed);
+            $run['results_from'] += $confirmed;
+        }
 
         $client = $this->client($run['settings']['base_url'], $token, $started + self::HARD_DEADLINE);
         unset($token);
@@ -751,7 +766,9 @@ final class CanvasDeployRun
             'elapsed_ms' => (int)round(($this->now() - $started) * 1000),
             'stop_reason' => $stop,
             'done' => $run['phase'] === 'done' && $run['queue'] === [],
-            'results' => $results,
+            // Every row the page has not confirmed yet, starting at row number results_from.
+            'results' => $run['unconfirmed'],
+            'results_from' => $run['results_from'],
             'counts' => $run['counts'],
             'delay_ms' => $run['settings']['course_delay_ms'],
         ];
@@ -769,6 +786,8 @@ final class CanvasDeployRun
     private function record(array &$run, array $row, array &$results, int &$processed): void
     {
         $results[] = $row;
+        // Kept until the page confirms it, even if this batch ends in an error.
+        $run['unconfirmed'][] = $row;
         $processed++;
         $counts = &$run['counts'];
         $counts['processed']++;

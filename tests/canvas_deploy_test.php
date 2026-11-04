@@ -416,6 +416,32 @@ foreach ($batches as $batch) {
 }
 $service->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
 
+// A batch reply that never reaches the page loses no rows: rows the page has not confirmed
+// are sent again, and the page ends with one row per course counted.
+$clock = new FakeClock();
+$canvas = new FakeCanvas(FakeCanvas::scenario(['slow' => true, 'fresh_courses' => 0]), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
+$store = [];
+$service = $newService($store, $canvas, $clock);
+$started = $service->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001,1007,1002']));
+$ids = ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']];
+$pageRows = [];
+$lost = false;
+for ($i = 0; $i < 20; $i++) {
+    $reply = $service->dispatch('run_batch', $ids + ['received' => (string)count($pageRows)])['body'];
+    if (!$lost && $reply['processed'] > 0) {
+        $lost = true; // This reply never arrives.
+        continue;
+    }
+    array_push($pageRows, ...array_slice($reply['results'], count($pageRows) - $reply['results_from']));
+    if ($reply['done']) {
+        break;
+    }
+}
+$check($lost && count($pageRows) === $reply['counts']['processed'] && count($pageRows) === 3
+    && array_column($pageRows, 'course_id') === array_unique(array_column($pageRows, 'course_id')),
+    'Rows from a lost batch reply were not sent again, or were sent twice: ' . json_encode(array_column($pageRows, 'course_id')));
+$service->dispatch('run_finish', $ids);
+
 // Throttling is absorbed; account-level installs skip course tool lookups; course IDs report lookups.
 $clock = new FakeClock();
 $canvas = new FakeCanvas(FakeCanvas::scenario(['account_tool' => true, 'throttle' => 2, 'fresh_courses' => 0]), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });

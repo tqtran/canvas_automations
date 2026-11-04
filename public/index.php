@@ -171,6 +171,7 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                                 <button type="button" class="btn btn-outline-secondary btn-sm" id="cdSelectVisible">Select shown</button>
                                 <button type="button" class="btn btn-outline-secondary btn-sm" id="cdClearSelection">Clear selection</button>
                                 <span id="cdSelectedCount" class="form-text m-0" role="status" aria-live="polite"></span>
+                                <button type="button" class="btn btn-outline-warning btn-sm d-none" id="cdClearHidden">Deselect hidden</button>
                             </div>
                             <div class="table-responsive border rounded" style="max-height: 22rem; overflow: auto;">
                                 <table class="table table-sm table-hover align-middle mb-0">
@@ -713,7 +714,20 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
         const shown = new Set(visibleCourses().map((course) => course.id));
         const hidden = Array.from(selected).filter((id) => !shown.has(id)).length;
         els.selectedCount.textContent = selected.size + ' selected of ' + courses.length + ' courses'
-            + (hidden ? ' (' + hidden + ' not shown by the current filter).' : '.');
+            + (hidden ? ' (' + hidden + ' not shown by the current filter, still included in the run).' : '.');
+        byId('cdClearHidden').classList.toggle('d-none', hidden === 0);
+    }
+    byId('cdClearHidden').addEventListener('click', () => {
+        const shown = new Set(visibleCourses().map((course) => course.id));
+        Array.from(selected).forEach((id) => { if (!shown.has(id)) selected.delete(id); });
+        renderCourses();
+        renderSummary();
+    });
+
+    // The chosen courses by name, for the deploy confirmation.
+    function selectedNames(limit) {
+        const names = courses.filter((course) => selected.has(course.id)).map(courseLabel);
+        return names.slice(0, limit).join('; ') + (names.length > limit ? '; and ' + (names.length - limit) + ' more' : '');
     }
 
     function renderCourses() {
@@ -1070,7 +1084,8 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
             if (run.cancelRequested) { await closeRun(true); return; }
             let batch;
             try {
-                batch = await post('run_batch', { run_id: run.runId, run_key: run.runKey });
+                // "received" lets the server resend rows from a reply that never arrived.
+                batch = await post('run_batch', { run_id: run.runId, run_key: run.runKey, received: String(run.results.length) });
             } catch (error) {
                 if (['run_missing', 'run_key_rejected', 'run_forbidden', 'run_locked'].includes(error.error)) {
                     endRun('Run stopped', error.message || 'The run is no longer active.');
@@ -1086,7 +1101,8 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
                 return;
             }
             run.counts = batch.counts;
-            appendResults(batch.results);
+            const from = typeof batch.results_from === 'number' ? batch.results_from : run.results.length;
+            appendResults(batch.results.slice(Math.max(0, run.results.length - from)));
             renderCounts(batch.counts, run.dryRun);
             els.progressStatus.textContent = 'Processed ' + batch.counts.processed + ' courses so far. Last batch: '
                 + batch.processed + ' in ' + (batch.elapsed_ms / 1000).toFixed(1) + ' seconds.';
@@ -1135,7 +1151,8 @@ $cdScopeValue = (string)$cdDefaults['scope_value'];
             return;
         }
         if (!dryRun) {
-            const scopeText = describe('scope', settings.scope) + (['picked', 'course', 'term'].includes(settings.scope) ? ': ' + describe('scope_value', settings.scope_value, settings.scope) : '');
+            const scopeText = describe('scope', settings.scope) + (['picked', 'course', 'term'].includes(settings.scope) ? ': ' + describe('scope_value', settings.scope_value, settings.scope) : '')
+                + (settings.scope === 'picked' ? ' (' + selectedNames(10) + ')' : '');
             // An inline second click instead of window.confirm(), which some browsers block silently.
             if (!confirmingDeploy) {
                 confirmingDeploy = true;

@@ -39,6 +39,8 @@ PHP 8.2 or newer with the `curl` or `openssl` extension, and `mbstring`.
 
 ### Setup
 
+Step by step for a Windows/IIS server, with commands: [docs/DEPLOY_CHECKLIST.md](docs/DEPLOY_CHECKLIST.md).
+
 1. Point the web server's document root at `public/`. Nothing outside it should be served.
 2. Copy `config.example.php` to `config.local.php`. Optionally set `canvas_base_url`,
    `canvas_allowed_hosts`, and the LTI launch URL, consumer key and shared secret. Without them the

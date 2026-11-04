@@ -43,6 +43,14 @@ $h = static fn(mixed $value): string => htmlspecialchars((string)$value, ENT_QUO
 $cdDefaults = $canvasDeploy['defaults'];
 $cdScopeValue = (string)$cdDefaults['scope_value'];
 $cdWorkerSeen = $queue->workerSeen();
+// The data folder holds the queue, its key and the logs. Test it by writing a file: on
+// Windows is_writable() looks only at the read-only flag, not at folder permissions.
+$cdDataDir = (string)$appConfig['data_dir'];
+$cdProbe = rtrim($cdDataDir, '/\\') . '/.write-test-' . bin2hex(random_bytes(4));
+$cdDataOk = (is_dir($cdDataDir) || @mkdir($cdDataDir, 0700, true)) && @file_put_contents($cdProbe, 'ok') !== false;
+if ($cdDataOk) {
+    @unlink($cdProbe);
+}
 $cdWorkerFresh = $queue->workerFresh();
 ?>
 <div class="container my-4">
@@ -388,6 +396,15 @@ $cdWorkerFresh = $queue->workerFresh();
                             <div class="small text-break"><?= $h($check['detail']) ?></div>
                         </li>
                     <?php endforeach; ?>
+                    <li class="list-group-item px-0">
+                        <div class="d-flex justify-content-between gap-3">
+                            <span>Data folder</span>
+                            <span class="badge text-bg-<?= $cdDataOk ? 'success' : 'danger' ?>"><?= $cdDataOk ? 'Writable' : 'Not writable' ?></span>
+                        </div>
+                        <div class="small text-break"><?= $cdDataOk
+                            ? 'Runs, the queue key and logs are kept here.'
+                            : $h('This server cannot write to ' . $cdDataDir . '. Give the IIS app pool account (IIS AppPool\<pool name>) Modify permission on it; runs cannot start until then.') ?></div>
+                    </li>
                     <li class="list-group-item px-0">
                         <div class="d-flex justify-content-between gap-3">
                             <span>Queue worker</span>

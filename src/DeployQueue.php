@@ -32,6 +32,7 @@ final class DeployQueue
 
     private \Closure $engine;
     private \Closure $clock;
+    private string|\Closure $queueKey;
     private ?\Closure $sleeper;
     private ?\Closure $audit;
 
@@ -43,13 +44,16 @@ final class DeployQueue
      */
     public function __construct(
         private string $dir,
-        private string $queueKey,
+        string|\Closure $queueKey,
         callable $engine,
         ?callable $clock = null,
         ?callable $sleeper = null,
         ?callable $audit = null,
     ) {
         $this->engine = \Closure::fromCallable($engine);
+        // A closure is only called when a run needs the key, so the page still loads (and can
+        // say what is wrong) when the key file cannot be created.
+        $this->queueKey = $queueKey;
         $this->audit = $audit !== null ? \Closure::fromCallable($audit) : null;
         $this->clock = $clock !== null ? \Closure::fromCallable($clock) : static fn(): float => microtime(true);
         $this->sleeper = $sleeper !== null ? \Closure::fromCallable($sleeper) : null;
@@ -115,7 +119,7 @@ final class DeployQueue
             'errors' => 0,
             'message' => '',
             'store' => $store,
-            'run_key' => (new Encryption($this->queueKey))->encrypt((string)$started['run_key']),
+            'run_key' => (new Encryption($this->queueKey()))->encrypt((string)$started['run_key']),
         ];
         $this->write($job);
         $this->log('run_queued', $job, [
@@ -478,10 +482,18 @@ final class DeployQueue
         }
     }
 
+    private function queueKey(): string
+    {
+        if ($this->queueKey instanceof \Closure) {
+            $this->queueKey = (string)($this->queueKey)();
+        }
+        return $this->queueKey;
+    }
+
     private function runKey(array $job): ?string
     {
         try {
-            return (new Encryption($this->queueKey))->decrypt((string)$job['run_key']);
+            return (new Encryption($this->queueKey()))->decrypt((string)$job['run_key']);
         } catch (\Throwable) {
             return null;
         }

@@ -83,7 +83,7 @@ $makeEngine = static function (array &$store, array $lti = []) use ($appConfig, 
 
 $queue = new CanvasAutomations\DeployQueue(
     rtrim($appConfig['data_dir'], '/\\') . '/queue',
-    CanvasAutomations\DeployQueue::key($appConfig['queue_key'], $appConfig['data_dir']),
+    static fn(): string => CanvasAutomations\DeployQueue::key($appConfig['queue_key'], $appConfig['data_dir']),
     static fn(array &$store): CanvasAutomations\CanvasDeployRun => $makeEngine($store),
     null,
     null,

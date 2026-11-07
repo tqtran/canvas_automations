@@ -273,6 +273,8 @@ $cdWorkerFresh = $queue->workerFresh();
                                             <th scope="col" class="text-center" title="The tool on this account, or inherited from a parent account">Tool</th>
                                             <th scope="col" class="text-center" title="The tool's Course Navigation link">Nav</th>
                                             <th scope="col">Account</th>
+                                            <th scope="col" class="text-end" title="Sub-accounts below this account, at every level">Sub-accounts</th>
+                                            <th scope="col" class="text-end" title="Courses in this account and its sub-accounts: the courses an install here reaches">Courses</th>
                                             <th scope="col">ID</th>
                                         </tr>
                                     </thead>
@@ -1032,7 +1034,9 @@ $cdWorkerFresh = $queue->workerFresh();
 
     // Accounts the token administers, as a tree, for installing on an account.
     const accountFlags = new Map();
+    const accountCourses = new Map();
     let accountGeneration = 0;
+    let countGeneration = 0;
     const ACCOUNT_FLAG_TEXT = {
         here: ['✓', 'text-success', 'Installed on this account'],
         inherited: ['↑', 'text-primary', 'Inherited from a parent account'],
@@ -1073,6 +1077,24 @@ $cdWorkerFresh = $queue->workerFresh();
         return td;
     }
 
+    function accountCourseCell(count) {
+        const td = document.createElement('td');
+        td.className = 'text-end';
+        if (!count) {
+            td.textContent = '…';
+            td.classList.add('text-body-secondary');
+            td.title = 'Not counted yet';
+        } else if (count.error) {
+            td.textContent = '!';
+            td.classList.add('text-warning', 'fw-bold');
+            td.title = 'Could not count: ' + count.error;
+        } else {
+            td.textContent = count.courses.toLocaleString() + (count.more ? '+' : '');
+            if (count.more) td.title = 'Counting stopped here; there are more';
+        }
+        return td;
+    }
+
     function renderAccounts() {
         els.accountBody.replaceChildren(...accounts.map((account) => {
             const tr = document.createElement('tr');
@@ -1090,13 +1112,18 @@ $cdWorkerFresh = $queue->workerFresh();
             label.style.paddingLeft = (account.depth * 1.25) + 'rem';
             label.textContent = (account.depth > 0 ? '└ ' : '') + accountLabel(account);
             name.appendChild(label);
-            const badge = document.createElement('span');
-            badge.className = 'badge ms-2 ' + (account.root ? 'text-bg-warning' : 'text-bg-light');
-            badge.textContent = account.root ? 'Root: every course' : account.below + ' sub-account' + (account.below === 1 ? '' : 's') + ' below';
-            if (account.root || account.below > 0) name.appendChild(badge);
+            if (account.root) {
+                const badge = document.createElement('span');
+                badge.className = 'badge ms-2 text-bg-warning';
+                badge.textContent = 'Root: every course';
+                name.appendChild(badge);
+            }
+            const subs = document.createElement('td');
+            subs.className = 'text-end';
+            subs.textContent = account.below.toLocaleString();
             const id = document.createElement('td');
             id.textContent = String(account.id);
-            tr.append(pick, accountFlagCell(accountFlags.get(account.id), 'app'), accountFlagCell(accountFlags.get(account.id), 'nav'), name, id);
+            tr.append(pick, accountFlagCell(accountFlags.get(account.id), 'app'), accountFlagCell(accountFlags.get(account.id), 'nav'), name, subs, accountCourseCell(accountCourses.get(account.id)), id);
             return tr;
         }));
     }
@@ -1144,6 +1171,8 @@ $cdWorkerFresh = $queue->workerFresh();
         accounts = [];
         selectedAccounts.clear();
         accountFlags.clear();
+        accountCourses.clear();
+        countGeneration++;
         renderAccounts();
         els.accountStatus.textContent = 'Listing your accounts…';
         try {
@@ -1152,7 +1181,10 @@ $cdWorkerFresh = $queue->workerFresh();
             maxAccounts = result.max_selectable || maxAccounts;
             renderAccounts();
             els.accountStatus.textContent = result.partial ? 'Some sub-accounts could not be listed.' : '';
-            loadAccountFlags();
+            // Counts wait for the tool checks so the two don't load Canvas at once.
+            const generation = ++countGeneration;
+            await loadAccountFlags();
+            if (generation === countGeneration) loadAccountCourses(generation);
         } catch (error) {
             els.accountStatus.textContent = 'Could not list accounts: ' + (error.message || 'unknown error');
         }
@@ -1193,6 +1225,33 @@ $cdWorkerFresh = $queue->workerFresh();
         }
         if (generation === accountGeneration) {
             els.accountStatus.textContent = 'Tool and Nav: ✓ on this account, ↑ inherited from a parent account, ✗ not there, ? another tool on the same domain matched, ! could not check (hover for why).';
+        }
+    }
+
+    // Course counts per account, a few accounts per call; read-only.
+    async function loadAccountCourses(generation) {
+        const queue = accounts.map((account) => account.id);
+        const attempts = new Map();
+        while (queue.length && generation === countGeneration) {
+            const batch = queue.splice(0, 5);
+            let result;
+            try {
+                result = await post('account_courses', { base_url: els.baseUrl.value.trim(), canvas_token: els.token.value, account_ids: batch.join(',') });
+            } catch (error) {
+                if (generation !== countGeneration) return;
+                batch.forEach((id) => accountCourses.set(id, { error: error.message || 'unknown error' }));
+                renderAccounts();
+                if (error.canvas_status === 401) return;
+                continue;
+            }
+            if (generation !== countGeneration) return;
+            Object.entries(result.counts || {}).forEach(([id, count]) => accountCourses.set(Number(id), count));
+            (result.pending || []).forEach((id) => {
+                const tries = (attempts.get(id) || 0) + 1;
+                attempts.set(id, tries);
+                if (tries >= 3) accountCourses.set(id, { error: 'Canvas was too slow to count this account' }); else queue.push(id);
+            });
+            renderAccounts();
         }
     }
 
@@ -1304,6 +1363,8 @@ $cdWorkerFresh = $queue->workerFresh();
         accounts = [];
         selectedAccounts.clear();
         accountGeneration++;
+        countGeneration++;
+        accountCourses.clear();
         renderAccounts();
         els.accountStatus.textContent = '';
         connectedAdmin = false;

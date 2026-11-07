@@ -343,6 +343,12 @@ final class CanvasDeployRun
                         (string)($input['lti_launch_url'] ?? ''),
                         (string)($input['account_ids'] ?? '')
                     ));
+                case 'account_courses':
+                    return self::ok($this->accountCourseCounts(
+                        (string)($input['base_url'] ?? ''),
+                        (string)($input['canvas_token'] ?? ''),
+                        (string)($input['account_ids'] ?? '')
+                    ));
                 case 'course_flags':
                     return self::ok($this->courseFlags(
                         (string)($input['base_url'] ?? ''),
@@ -556,6 +562,53 @@ final class CanvasDeployRun
             }
         }
         return ['flags' => $flags, 'pending' => $pending, 'launch_url_known' => true];
+    }
+
+    /** Pages read when counting one account's courses; past this the count shows as "N+". */
+    public const COURSE_COUNT_PAGES = 10;
+
+    /**
+     * How many courses each account holds, its sub-accounts' courses included, which is what an
+     * install on that account reaches. Read-only, up to FLAGS_PER_CALL accounts per call; a count
+     * stops at COURSE_COUNT_PAGES pages and is then marked as more.
+     */
+    public function accountCourseCounts(string $baseUrl, string $token, string $accountIds): array
+    {
+        $ids = array_slice(array_values(array_unique(array_filter(
+            array_map('intval', preg_split('/[\s,]+/', $accountIds, -1, PREG_SPLIT_NO_EMPTY) ?: []),
+            static fn(int $id): bool => $id > 0
+        ))), 0, self::FLAGS_PER_CALL);
+        $started = $this->now();
+        $client = $this->client($baseUrl, $token, $started + self::FLAGS_HARD_SECONDS);
+        $counts = [];
+        $pending = [];
+        foreach ($ids as $index => $id) {
+            if ($index > 0 && $this->now() - $started > self::FLAGS_SOFT_SECONDS) {
+                $pending = array_slice($ids, $index);
+                break;
+            }
+            try {
+                $count = 0;
+                $page = $client->getPage("/api/v1/accounts/{$id}/courses", ['per_page' => CanvasClient::PER_PAGE]);
+                for ($read = 1; ; $read++) {
+                    $count += count($page['items']);
+                    if ($page['next'] === null || $read >= self::COURSE_COUNT_PAGES) {
+                        break;
+                    }
+                    $page = $client->getPage($page['next']);
+                }
+                $counts[(string)$id] = ['courses' => $count, 'more' => $page['next'] !== null];
+            } catch (CanvasDeadlineExceeded) {
+                $pending = array_slice($ids, $index);
+                break;
+            } catch (CanvasApiException $exception) {
+                if ($exception->status() === 401) {
+                    throw $exception;
+                }
+                $counts[(string)$id] = ['error' => $exception->getMessage()];
+            }
+        }
+        return ['counts' => $counts, 'pending' => $pending];
     }
 
     /**

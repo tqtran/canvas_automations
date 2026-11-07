@@ -227,7 +227,8 @@ switch ($action) {
     case 'course_flags':
     case 'accounts':
     case 'account_flags':
-        if ($action === 'course_flags' || $action === 'account_flags') {
+    case 'account_courses':
+        if ($action === 'course_flags' || $action === 'account_flags' || $action === 'account_courses') {
             // Talks to Canvas for several seconds and saves nothing; don't hold the session.
             session_write_close();
         }

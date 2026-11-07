@@ -1028,6 +1028,16 @@ $navService->dispatch('run_finish', ['run_id' => $accountRun['body']['run_id'], 
 $flags = $navService->dispatch('account_flags', $settings(['account_ids' => '1,2,3']));
 $check(($flags['body']['flags']['1']['app'] ?? '') === 'no' && ($flags['body']['flags']['2']['app'] ?? '') === 'here' && ($flags['body']['flags']['3']['app'] ?? '') === 'inherited',
     'Account flags were wrong: ' . json_encode($flags['body']));
+// Course counts per account; a count stops at COURSE_COUNT_PAGES pages and says there are more.
+$counted = $navService->dispatch('account_courses', $settings(['account_ids' => '1,2']));
+$one = $counted['body']['counts']['1'] ?? [];
+$check(($one['courses'] ?? 0) > 0 && ($one['more'] ?? true) === false && isset($counted['body']['counts']['2']) && ($counted['body']['pending'] ?? null) === [],
+    'Account course counts were not returned: ' . json_encode($counted['body']));
+$bigStore = [];
+$bigCanvas = new FakeCanvas(FakeCanvas::scenario(['fresh_courses' => 1100]), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
+$big = $newService($bigStore, $bigCanvas, $clock)->forQueue()->dispatch('account_courses', $settings(['account_ids' => '1']));
+$check(($big['body']['counts']['1']['courses'] ?? 0) === CanvasDeployRun::COURSE_COUNT_PAGES * CanvasClient::PER_PAGE && ($big['body']['counts']['1']['more'] ?? false) === true,
+    'A large account was not capped and marked as more: ' . json_encode($big['body']));
 $teacherStore = [];
 $teacherCanvas = new FakeCanvas(FakeCanvas::scenario(['fresh_courses' => 0, 'non_admin' => true]), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
 $teacherService = $newService($teacherStore, $teacherCanvas, $clock)->forQueue();

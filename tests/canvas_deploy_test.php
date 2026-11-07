@@ -253,19 +253,21 @@ $check($accountLevel['tool'] === 'present_account' && $accountLevel['module'] ==
 $withSis = (new CanvasLtiDeployer($fakeClient, $deploySettings, static fn(?string $sis): array => $sis === null ? ['No SIS ID'] : []))->deployCourse(['sis_course_id' => null] + $courseRow(1009));
 $check($withSis['status'] === 'warning' && $withSis['notes'][0] === 'No SIS ID', 'SIS inspector notes were not reported.');
 
-// Nav link: shown or hidden by default, and "Update if found".
-$hiddenPayload = CanvasLtiDeployer::toolPayload(['nav_default' => 'disabled'] + $deploySettings);
-$check($hiddenPayload['course_navigation']['default'] === 'disabled', 'A hidden-by-default nav link was not created hidden.');
-$check(CanvasLtiDeployer::toolPayload($deploySettings)['course_navigation']['default'] === 'enabled'
-    && CanvasLtiDeployer::navDefault('bogus') === 'enabled', 'The nav default is not "enabled" when unset or unknown.');
+// Nav link: who sees it (teachers and admins, everyone, or hidden), and "Update if found".
+$navOf = static fn(array $settings): array => CanvasLtiDeployer::toolPayload($settings + $deploySettings)['course_navigation'];
+$check(array_intersect_key($navOf([]), ['visibility' => 1, 'default' => 1]) === ['visibility' => 'admins', 'default' => 'enabled'], 'The nav link is not for teachers and admins by default.');
+$check(array_intersect_key($navOf(['nav_visibility' => 'members']), ['visibility' => 1, 'default' => 1]) === ['visibility' => 'members', 'default' => 'enabled'], 'An everyone nav link has the wrong fields.');
+$check(array_intersect_key($navOf(['nav_visibility' => 'hidden']), ['visibility' => 1, 'default' => 1]) === ['visibility' => 'members', 'default' => 'disabled'], 'A hidden nav link has the wrong fields.');
+$check(CanvasLtiDeployer::navVisibility('bogus') === 'admins', 'An unknown nav visibility was kept.');
+$check(CanvasLtiDeployer::navFieldsFrom(['nav_default' => 'disabled']) === ['admins', 'disabled'], 'A run queued with nav_default lost its meaning.');
 $navTool = ['course_navigation' => CanvasLtiDeployer::navPlacement('SLO Cloud Reporting')];
-$check(!CanvasLtiDeployer::navDiffers($navTool, 'SLO Cloud Reporting', 'enabled'), 'An identical nav link was seen as different.');
-$check(CanvasLtiDeployer::navDiffers($navTool, 'SLO Cloud', 'enabled') && CanvasLtiDeployer::navDiffers($navTool, 'SLO Cloud Reporting', 'disabled'),
-    'A changed link name or default was not seen as different.');
-$check(!CanvasLtiDeployer::navDiffers(['course_navigation' => ['text' => 'X', 'visibility' => 'admins', 'enabled' => true]], 'X', 'enabled'),
+$check(!CanvasLtiDeployer::navDiffers($navTool, 'SLO Cloud Reporting', 'admins', 'enabled'), 'An identical nav link was seen as different.');
+$check(CanvasLtiDeployer::navDiffers($navTool, 'SLO Cloud', 'admins', 'enabled') && CanvasLtiDeployer::navDiffers($navTool, 'SLO Cloud Reporting', 'admins', 'disabled')
+    && CanvasLtiDeployer::navDiffers($navTool, 'SLO Cloud Reporting', 'members', 'enabled'), 'A changed link name, default or visibility was not seen as different.');
+$check(!CanvasLtiDeployer::navDiffers(['course_navigation' => ['text' => 'X', 'visibility' => 'admins', 'enabled' => true]], 'X', 'admins', 'enabled'),
     'A nav link without a default was not read as shown, as Canvas treats it.');
 
-$navSettings = ['create_nav' => true, 'create_module' => false, 'link_name' => 'SLO Cloud', 'nav_default' => 'disabled'] + $deploySettings;
+$navSettings = ['create_nav' => true, 'create_module' => false, 'link_name' => 'SLO Cloud', 'nav_visibility' => 'hidden'] + $deploySettings;
 $puts = static fn(): int => count(array_filter($canvas->state['calls'], static fn(string $call): bool => str_starts_with($call, 'PUT')));
 $putsBefore = $puts();
 $leftAlone = (new CanvasLtiDeployer($fakeClient, $navSettings))->deployCourse($courseRow(1001));
@@ -275,7 +277,7 @@ $check($navDry['nav'] === 'would_update' && $navDry['tool'] === 'present' && $pu
 $navUpdated = (new CanvasLtiDeployer($fakeClient, ['update_nav' => true] + $navSettings))->deployCourse($courseRow(1001));
 $updatedNav = $canvas->state['courses'][1001]['tools'][0]['course_navigation'] ?? [];
 $check($navUpdated['nav'] === 'updated' && $navUpdated['status'] === 'ok' && ($updatedNav['text'] ?? '') === 'SLO Cloud'
-    && ($updatedNav['default'] ?? '') === 'disabled' && ($updatedNav['visibility'] ?? '') === 'admins', 'An existing nav link was not updated.');
+    && ($updatedNav['default'] ?? '') === 'disabled' && ($updatedNav['visibility'] ?? '') === 'members', 'An existing nav link was not updated.');
 $check(($canvas->state['courses'][1001]['tools'][0]['consumer_key'] ?? '') === FakeCanvas::CONSUMER_KEY, 'Updating the nav link changed the tool credentials.');
 $putsBefore = $puts();
 $navSame = (new CanvasLtiDeployer($fakeClient, ['update_nav' => true] + $navSettings))->deployCourse($courseRow(1001));
@@ -289,6 +291,32 @@ $fromAccount = (new CanvasLtiDeployer($fakeClient, ['update_nav' => true] + $nav
 $check($fromAccount['nav'] === 'present' && $puts() === $putsBefore && str_contains(implode(' ', $fromAccount['notes']), 'comes from the account'),
     'An account nav link was not reported as not updatable from a course.');
 $canvas->state['account_tools'] = [];
+
+// Privacy: chosen for new tools, applied to existing ones only with "Also update tools".
+$check(CanvasLtiDeployer::toolPayload(['privacy_level' => 'name_only'] + $deploySettings)['privacy_level'] === 'name_only'
+    && CanvasLtiDeployer::toolPayload(['privacy_level' => 'bogus'] + $deploySettings)['privacy_level'] === 'public', 'Privacy was not taken from the settings, or a bad value kept.');
+$nameOnlyTool = FakeCanvas::tool(1, 'x', $launch, FakeCanvas::CONSUMER_KEY, 'name_only');
+$check(count(CanvasLtiDeployer::toolWarnings($nameOnlyTool, FakeCanvas::CONSUMER_KEY, 'public')) === 1
+    && CanvasLtiDeployer::toolWarnings($nameOnlyTool, FakeCanvas::CONSUMER_KEY, 'name_only') === [], 'Privacy warnings do not follow the chosen privacy.');
+$privacyUpdated = (new CanvasLtiDeployer($fakeClient, ['update_existing' => true, 'privacy_level' => 'anonymous', 'create_module' => false] + $deploySettings))->deployCourse($courseRow(1003));
+$updatedTool = $canvas->state['courses'][1003]['tools'][0] ?? [];
+$check($privacyUpdated['tool'] === 'updated' && ($updatedTool['privacy_level'] ?? '') === 'anonymous' && ($updatedTool['consumer_key'] ?? '') === FakeCanvas::CONSUMER_KEY,
+    '"Also update tools" did not apply the privacy with the credentials.');
+
+// Module: published when asked, but only a module the run creates.
+$published = (new CanvasLtiDeployer($fakeClient, ['privacy_level' => 'email_only', 'module_published' => true] + $deploySettings))->deployCourse($courseRow(1300));
+$newModule = $canvas->state['courses'][1300]['modules'][0] ?? [];
+$check($published['module'] === 'created' && ($newModule['published'] ?? false) === true && ($newModule['items'][0]['published'] ?? false) === true,
+    'A published module and its link were not published.');
+$check(($canvas->state['courses'][1300]['tools'][0]['privacy_level'] ?? '') === 'email_only', 'A new tool did not get the chosen privacy.');
+$canvas->state['courses'][1301]['modules'] = [['id' => 9901, 'name' => 'SLO Cloud', 'published' => false, 'items' => []]];
+$reused = (new CanvasLtiDeployer($fakeClient, ['module_published' => true] + $deploySettings))->deployCourse($courseRow(1301));
+$reusedModule = $canvas->state['courses'][1301]['modules'][0] ?? [];
+$check($reused['module'] === 'added' && ($reusedModule['published'] ?? true) === false && ($reusedModule['items'][0]['published'] ?? false) === true
+    && str_contains(implode(' ', $reused['notes']), 'unpublished'), 'An existing module was published, or its state not noted.');
+$unpublishedRun = (new CanvasLtiDeployer($fakeClient, $deploySettings))->deployCourse($courseRow(1302));
+$check(($canvas->state['courses'][1302]['modules'][0]['published'] ?? true) === false && ($canvas->state['courses'][1302]['modules'][0]['items'][0]['published'] ?? true) === false,
+    'An unpublished module choice published something.');
 
 // --- Run service ------------------------------------------------------------------------
 $lockRoot = sys_get_temp_dir() . '/slocloud-canvas-deploy-test-' . bin2hex(random_bytes(4));
@@ -922,15 +950,16 @@ $bare = $newService($store, $canvas, $clock)->forQueue()->dispatch('run_start', 
 $check($bare['status'] === 200, 'A launch URL without https:// was refused: ' . json_encode($bare['body']));
 
 // Nav settings: validated, passed to each course, and counted.
-$navValid = CanvasDeployRun::validateSettings($settings(['create_nav' => '1', 'update_nav' => '1', 'nav_default' => 'disabled']))['settings'];
-$check($navValid['update_nav'] === true && $navValid['nav_default'] === 'disabled', 'Nav settings were not read.');
-$navNoCreate = CanvasDeployRun::validateSettings($settings(['create_nav' => '0', 'update_nav' => '1', 'nav_default' => 'bogus']))['settings'];
-$check($navNoCreate['update_nav'] === false && $navNoCreate['nav_default'] === 'enabled', 'Nav update was allowed without the nav link, or a bad default kept.');
+$navValid = CanvasDeployRun::validateSettings($settings(['create_nav' => '1', 'update_nav' => '1', 'nav_visibility' => 'hidden', 'privacy_level' => 'name_only', 'module_published' => '1']))['settings'];
+$check($navValid['update_nav'] === true && $navValid['nav_visibility'] === 'hidden' && $navValid['privacy_level'] === 'name_only' && $navValid['module_published'] === true, 'Nav, privacy or module settings were not read.');
+$navNoCreate = CanvasDeployRun::validateSettings($settings(['create_nav' => '0', 'update_nav' => '1', 'nav_visibility' => 'bogus', 'privacy_level' => 'bogus', 'create_module' => '0', 'module_published' => '1']))['settings'];
+$check($navNoCreate['update_nav'] === false && $navNoCreate['nav_visibility'] === 'admins' && $navNoCreate['privacy_level'] === 'public' && $navNoCreate['module_published'] === false,
+    'Nav update or module publishing was allowed without its link, or a bad value kept.');
 $clock = new FakeClock();
 $canvas = new FakeCanvas(FakeCanvas::scenario(['fresh_courses' => 0]), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
 $store = [];
 $navService = $newService($store, $canvas, $clock)->forQueue();
-$navRun = $navService->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1002,1001', 'create_module' => '0', 'create_nav' => '1', 'update_nav' => '1', 'nav_default' => 'disabled']));
+$navRun = $navService->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1002,1001', 'create_module' => '0', 'create_nav' => '1', 'update_nav' => '1', 'nav_visibility' => 'hidden']));
 // A run queued before the consumer key was encrypted keeps it under lti; it still works.
 $store['run']['lti']['consumer_key'] = FakeCanvas::CONSUMER_KEY;
 unset($store['run']['lti_key']);

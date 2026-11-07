@@ -12,7 +12,7 @@ require_once __DIR__ . '/CanvasClient.php';
  *
  * Settings: launch_url, consumer_key, consumer_secret, link_name,
  * create_module, module_name, dry_run, account_tool, update_existing,
- * create_nav, update_nav, nav_default.
+ * create_nav, update_nav, nav_visibility, privacy_level, module_published.
  */
 final class CanvasLtiDeployer
 {
@@ -121,14 +121,52 @@ final class CanvasLtiDeployer
         return array_key_exists('course_navigation', $tool) && empty($tool['course_navigation']);
     }
 
+    /** Who sees the nav link: hidden until a teacher turns it on, teachers and admins, or everyone enrolled. */
+    public const NAV_VISIBILITY = ['hidden', 'admins', 'members'];
+    /** What Canvas sends the tool at launch, least to most. */
+    public const PRIVACY_LEVELS = ['anonymous', 'name_only', 'email_only', 'public'];
+    public const PRIVACY_LABELS = ['anonymous' => 'Anonymous', 'name_only' => 'Name only', 'email_only' => 'Email only', 'public' => 'Name and email'];
+
     /**
-     * The Course Navigation placement this tool installs: visible to teachers and admins.
-     * $default 'disabled' puts the link in the hidden list under Settings > Navigation,
-     * where a teacher can turn it on.
+     * The Course Navigation placement this tool installs. $visibility is who sees the link
+     * (admins: teachers, TAs, designers and admins; members: everyone enrolled). $default
+     * 'disabled' puts it in the hidden list under Settings > Navigation for a teacher to turn on.
      */
-    public static function navPlacement(string $linkName, string $default = 'enabled'): array
+    public static function navPlacement(string $linkName, string $visibility = 'admins', string $default = 'enabled'): array
     {
-        return ['enabled' => 'true', 'visibility' => 'admins', 'default' => self::navDefault($default), 'text' => $linkName];
+        return ['enabled' => 'true', 'visibility' => $visibility, 'default' => self::navDefault($default), 'text' => $linkName];
+    }
+
+    public static function navVisibility(mixed $value): string
+    {
+        return in_array($value, self::NAV_VISIBILITY, true) ? $value : 'admins';
+    }
+
+    /**
+     * Canvas's [visibility, default] for a nav_visibility choice. Hidden links are for everyone
+     * enrolled once a teacher turns them on: a staff-only link needs no hiding.
+     */
+    public static function navFields(mixed $choice): array
+    {
+        return match (self::navVisibility($choice)) {
+            'hidden' => ['members', 'disabled'],
+            'members' => ['members', 'enabled'],
+            default => ['admins', 'enabled'],
+        };
+    }
+
+    /** The nav fields a run asked for. Runs queued before nav_visibility used nav_default (staff only). */
+    public static function navFieldsFrom(array $settings): array
+    {
+        if (isset($settings['nav_visibility'])) {
+            return self::navFields($settings['nav_visibility']);
+        }
+        return ['admins', self::navDefault($settings['nav_default'] ?? 'enabled')];
+    }
+
+    public static function privacyLevel(mixed $value): string
+    {
+        return in_array($value, self::PRIVACY_LEVELS, true) ? $value : 'public';
     }
 
     /** 'enabled' or 'disabled'; anything else counts as 'enabled', as Canvas does. */
@@ -138,13 +176,13 @@ final class CanvasLtiDeployer
     }
 
     /** Whether a tool's existing nav link differs from the one this run would set. */
-    public static function navDiffers(array $tool, string $linkName, string $default): bool
+    public static function navDiffers(array $tool, string $linkName, string $visibility, string $default): bool
     {
         $nav = is_array($tool['course_navigation'] ?? null) ? $tool['course_navigation'] : [];
         $enabled = $nav['enabled'] ?? true;
         return trim((string)($nav['text'] ?? '')) !== trim($linkName)
             || self::navDefault($nav['default'] ?? 'enabled') !== self::navDefault($default)
-            || (string)($nav['visibility'] ?? '') !== 'admins'
+            || (string)($nav['visibility'] ?? '') !== $visibility
             || $enabled === false || $enabled === 'false';
     }
 
@@ -186,16 +224,18 @@ final class CanvasLtiDeployer
     }
 
     /** Warnings about an existing SLO Cloud tool that is left alone. */
-    public static function toolWarnings(array $tool, string $consumerKey): array
+    public static function toolWarnings(array $tool, string $consumerKey, string $privacy = 'public'): array
     {
         $warnings = [];
         $toolKey = (string)($tool['consumer_key'] ?? '');
         if ($toolKey !== '' && $consumerKey !== '' && $toolKey !== $consumerKey) {
             $warnings[] = 'The existing SLO Cloud tool uses a different consumer key, so its launches will fail signature checks.';
         }
-        $privacy = (string)($tool['privacy_level'] ?? '');
-        if ($privacy !== '' && $privacy !== 'public') {
-            $warnings[] = 'The existing SLO Cloud tool has privacy level "' . $privacy . '", so names and email are not sent.';
+        $privacy = self::privacyLevel($privacy);
+        $toolPrivacy = (string)($tool['privacy_level'] ?? '');
+        if ($toolPrivacy !== '' && $toolPrivacy !== $privacy) {
+            $warnings[] = 'The existing SLO Cloud tool sends "' . (self::PRIVACY_LABELS[$toolPrivacy] ?? $toolPrivacy) . '", not "'
+                . self::PRIVACY_LABELS[$privacy] . '" as chosen for this run. "Also update tools" changes it.';
         }
         return $warnings;
     }
@@ -206,13 +246,13 @@ final class CanvasLtiDeployer
     {
         $payload = [
             'name' => (string)$settings['link_name'],
-            'privacy_level' => 'public',
+            'privacy_level' => self::privacyLevel($settings['privacy_level'] ?? 'public'),
             'consumer_key' => (string)$settings['consumer_key'],
             'shared_secret' => (string)$settings['consumer_secret'],
             'url' => (string)$settings['launch_url'],
         ];
         if ($settings['create_nav'] ?? true) {
-            $payload['course_navigation'] = self::navPlacement((string)$settings['link_name'], self::navDefault($settings['nav_default'] ?? 'enabled'));
+            $payload['course_navigation'] = self::navPlacement((string)$settings['link_name'], ...self::navFieldsFrom($settings));
         }
         return $payload;
     }
@@ -500,7 +540,7 @@ final class CanvasLtiDeployer
                     return 'present';
                 }
                 $this->client->put("/api/v1/courses/{$courseId}/external_tools/" . (int)$ownMatch['id'], [
-                    'course_navigation' => self::navPlacement((string)$this->settings['link_name'], $this->navDefaultSetting()),
+                    'course_navigation' => self::navPlacement((string)$this->settings['link_name'], ...self::navFieldsFrom($this->settings)),
                 ]);
                 $nav = 'added';
                 return 'present';
@@ -527,12 +567,13 @@ final class CanvasLtiDeployer
                     $this->client->put("/api/v1/courses/{$courseId}/external_tools/" . (int)$ownMatch['id'], [
                         'consumer_key' => (string)$this->settings['consumer_key'],
                         'shared_secret' => (string)$this->settings['consumer_secret'],
+                        'privacy_level' => self::privacyLevel($this->settings['privacy_level'] ?? 'public'),
                     ]);
                     return 'updated';
                 }
-                $notes[] = 'SLO Cloud comes from the account, so its credentials cannot be updated from this course.';
+                $notes[] = 'SLO Cloud comes from the account, so its credentials and privacy cannot be updated from this course.';
             }
-            array_push($notes, ...self::toolWarnings($match, (string)$this->settings['consumer_key']));
+            array_push($notes, ...self::toolWarnings($match, (string)$this->settings['consumer_key'], self::privacyLevel($this->settings['privacy_level'] ?? 'public')));
             return 'present';
         }
         if ((string)($this->settings['consumer_key'] ?? '') === '' || (string)($this->settings['consumer_secret'] ?? '') === '') {
@@ -549,14 +590,9 @@ final class CanvasLtiDeployer
         return 'created';
     }
 
-    private function navDefaultSetting(): string
-    {
-        return self::navDefault($this->settings['nav_default'] ?? 'enabled');
-    }
-
     /**
      * "Update if found" for the nav link: give the course's own tool this run's link name and
-     * shown/hidden default. Returns updated, would_update or present (already the same, or the
+     * visibility. Returns updated, would_update or present (already the same, or the
      * link comes from the account, which cannot be changed from a course).
      */
     private function updateNav(int $courseId, ?array $ownTool, array &$notes): string
@@ -569,15 +605,15 @@ final class CanvasLtiDeployer
             return 'present';
         }
         $linkName = (string)$this->settings['link_name'];
-        $default = $this->navDefaultSetting();
-        if (!self::navDiffers($ownTool, $linkName, $default)) {
+        [$visibility, $default] = self::navFieldsFrom($this->settings);
+        if (!self::navDiffers($ownTool, $linkName, $visibility, $default)) {
             return 'present';
         }
         if (!empty($this->settings['dry_run'])) {
             return 'would_update';
         }
         $this->client->put("/api/v1/courses/{$courseId}/external_tools/" . (int)$ownTool['id'], [
-            'course_navigation' => self::navPlacement($linkName, $default),
+            'course_navigation' => self::navPlacement($linkName, $visibility, $default),
         ]);
         return 'updated';
     }
@@ -606,8 +642,14 @@ final class CanvasLtiDeployer
             }
         }
 
-        if ($named !== null && !empty($named['published'])) {
-            $notes[] = 'Module "' . $moduleName . '" is published; confirm the SLO Cloud link stays hidden from students.';
+        // A module the run finds is left published or unpublished as it is; only one it creates
+        // follows the module_published choice.
+        $publish = !empty($this->settings['module_published']);
+        if ($named !== null && !$publish && !empty($named['published'])) {
+            $notes[] = 'Module "' . $moduleName . '" is published, so students can see the SLO Cloud link. Unpublish the module or the link if they should not.';
+        }
+        if ($named !== null && $publish && empty($named['published'])) {
+            $notes[] = 'Module "' . $moduleName . '" is unpublished, so students won\'t see the SLO Cloud link until a teacher publishes the module.';
         }
         if (!empty($this->settings['dry_run'])) {
             return $named === null ? 'would_create' : 'would_add';
@@ -615,7 +657,7 @@ final class CanvasLtiDeployer
 
         $created = false;
         if ($named === null) {
-            // Canvas creates modules unpublished, so students never see them.
+            // Canvas creates modules unpublished; it is published below when asked for.
             // Position 1 puts it at the top of the course's modules.
             $named = $this->client->post("/api/v1/courses/{$courseId}/modules", ['module' => ['name' => $moduleName, 'position' => 1]]);
             $created = true;
@@ -627,13 +669,23 @@ final class CanvasLtiDeployer
         if (!$created) {
             $this->client->put("/api/v1/courses/{$courseId}/modules/{$moduleId}", ['module' => ['position' => 1]]);
         }
-        $this->client->post("/api/v1/courses/{$courseId}/modules/{$moduleId}/items", [
+        $item = $this->client->post("/api/v1/courses/{$courseId}/modules/{$moduleId}/items", [
             'module_item' => [
                 'type' => 'ExternalTool',
                 'title' => (string)$this->settings['link_name'],
                 'external_url' => (string)$this->settings['launch_url'],
             ],
         ]);
+        if ($publish) {
+            // The link this run added is published, and the module too when this run made it.
+            $itemId = (int)(is_array($item) ? ($item['id'] ?? 0) : 0);
+            if ($itemId > 0) {
+                $this->client->put("/api/v1/courses/{$courseId}/modules/{$moduleId}/items/{$itemId}", ['module_item' => ['published' => 'true']]);
+            }
+            if ($created) {
+                $this->client->put("/api/v1/courses/{$courseId}/modules/{$moduleId}", ['module' => ['published' => 'true']]);
+            }
+        }
         return $created ? 'created' : 'added';
     }
 }

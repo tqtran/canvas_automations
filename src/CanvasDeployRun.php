@@ -282,7 +282,10 @@ final class CanvasDeployRun
         // secret). It belongs to the nav choice, so it only applies when nav links are wanted.
         $settings['update_nav'] = $settings['create_nav']
             && filter_var($input['update_nav'] ?? false, FILTER_VALIDATE_BOOLEAN);
-        $settings['nav_default'] = CanvasLtiDeployer::navDefault((string)($input['nav_default'] ?? 'enabled'));
+        $settings['nav_visibility'] = CanvasLtiDeployer::navVisibility((string)($input['nav_visibility'] ?? 'admins'));
+        $settings['privacy_level'] = CanvasLtiDeployer::privacyLevel((string)($input['privacy_level'] ?? 'public'));
+        $settings['module_published'] = $settings['create_module']
+            && filter_var($input['module_published'] ?? false, FILTER_VALIDATE_BOOLEAN);
         return ['settings' => $settings, 'errors' => $errors];
     }
 
@@ -582,7 +585,7 @@ final class CanvasDeployRun
                 $label = 'Account "' . (string)($account['name'] ?? $account['id']) . '": SLO Cloud ' . CanvasLtiDeployer::describeTool($match);
                 if (empty($settings['dry_run'])) {
                     $client->put('/api/v1/accounts/' . (int)$account['id'] . '/external_tools/' . (int)$match['id'], [
-                        'course_navigation' => CanvasLtiDeployer::navPlacement($settings['link_name'], $settings['nav_default'] ?? 'enabled'),
+                        'course_navigation' => CanvasLtiDeployer::navPlacement($settings['link_name'], ...CanvasLtiDeployer::navFieldsFrom($settings)),
                     ]);
                     $notes[] = $label . ': Course Navigation link added.';
                 } else {
@@ -610,7 +613,7 @@ final class CanvasDeployRun
                     . ($doubt ?? 'SLO Cloud ' . CanvasLtiDeployer::describeTool($match) . ' has no Course Navigation link; each course is checked on its own.');
                 continue;
             }
-            foreach (CanvasLtiDeployer::toolWarnings($match, $effective['consumer_key']) as $warning) {
+            foreach (CanvasLtiDeployer::toolWarnings($match, $effective['consumer_key'], $settings['privacy_level']) as $warning) {
                 $notes[] = 'Account "' . (string)($account['name'] ?? $account['id']) . '": ' . $warning;
             }
         }
@@ -673,7 +676,9 @@ final class CanvasDeployRun
             'update_existing' => $settings['update_existing'],
             'create_nav' => $settings['create_nav'],
             'update_nav' => $settings['update_nav'],
-            'nav_default' => $settings['nav_default'],
+            'nav_visibility' => $settings['nav_visibility'],
+            'privacy_level' => $settings['privacy_level'],
+            'module_published' => $settings['module_published'],
             'create_module' => $settings['create_module'],
             'account_tool' => $accountTool,
         ]);
@@ -728,8 +733,9 @@ final class CanvasDeployRun
             'account_nav_fixed' => $run['account_nav_fixed'] ?? false,
             'create_nav' => $run['settings']['create_nav'] ?? false,
             'update_nav' => $run['settings']['update_nav'] ?? false,
-            'nav_default' => $run['settings']['nav_default'] ?? 'enabled',
-        ], $this->sisInspector);
+            'privacy_level' => $run['settings']['privacy_level'] ?? 'public',
+            'module_published' => $run['settings']['module_published'] ?? false,
+        ] + array_intersect_key($run['settings'], ['nav_visibility' => true, 'nav_default' => true]), $this->sisInspector);
 
         $delay = $run['settings']['course_delay_ms'] / 1000;
         $results = [];

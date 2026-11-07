@@ -275,8 +275,18 @@ $cdWorkerFresh = $queue->workerFresh();
                         <label for="cdLinkName" class="form-label">Link name</label>
                         <input type="text" class="form-control" id="cdLinkName" name="link_name" maxlength="100" value="<?= $h($cdDefaults['link_name']) ?>" required
                             aria-describedby="cdLinkNameHelp cdLinkNameError">
-                        <div id="cdLinkNameHelp" class="form-text">The course navigation tab name (instructors only) and the module link title.</div>
+                        <div id="cdLinkNameHelp" class="form-text">The course navigation tab name and the module link title.</div>
                         <div id="cdLinkNameError" class="invalid-feedback"></div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="cdPrivacy" class="form-label">What Canvas sends the tool about each user</label>
+                        <select class="form-select" id="cdPrivacy" name="privacy_level" aria-describedby="cdPrivacyHelp">
+                            <option value="public">Name and email</option>
+                            <option value="email_only">Email only</option>
+                            <option value="name_only">Name only</option>
+                            <option value="anonymous">Anonymous (an ID only)</option>
+                        </select>
+                        <div id="cdPrivacyHelp" class="form-text">Set on tools this run creates. Tools already in a course change only when "Also update tools" below is ticked.</div>
                     </div>
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="checkbox" id="cdCreateNav" name="create_nav" checked>
@@ -284,21 +294,22 @@ $cdWorkerFresh = $queue->workerFresh();
                         <div class="form-text">Where the link is already there it's left alone, unless "Update" below is ticked. If SLO Cloud comes from the account without a nav link, the course gets its own copy to carry it. Needs the key and secret.</div>
                     </div>
                     <div class="mb-3 ms-4" id="cdNavOptions">
-                        <label for="cdNavDefault" class="form-label">New and updated nav links are</label>
-                        <select class="form-select" id="cdNavDefault" name="nav_default" aria-describedby="cdNavDefaultHelp">
-                            <option value="enabled">Shown in Course Navigation</option>
-                            <option value="disabled">Hidden until a teacher turns them on</option>
+                        <label for="cdNavVisibility" class="form-label">Who sees the nav link</label>
+                        <select class="form-select" id="cdNavVisibility" name="nav_visibility" aria-describedby="cdNavVisibilityHelp">
+                            <option value="admins">Teachers and admins</option>
+                            <option value="members">Everyone in the course</option>
+                            <option value="hidden">Hidden until a teacher turns it on</option>
                         </select>
-                        <div id="cdNavDefaultHelp" class="form-text">A hidden link waits in the hidden list under the course's Settings &gt; Navigation, where a teacher can drag it into the menu. Where a teacher has already arranged that page, their choice stays.</div>
+                        <div id="cdNavVisibilityHelp" class="form-text">Teachers and admins includes TAs and designers. A hidden link waits under the course's Settings &gt; Navigation; once a teacher turns it on, everyone in the course sees it. Where a teacher has already arranged that page, their choice stays.</div>
                         <div class="form-check mt-2">
                             <input class="form-check-input" type="checkbox" id="cdUpdateNav" name="update_nav" aria-describedby="cdUpdateNavHelp">
                             <label class="form-check-label" for="cdUpdateNav">Update the nav link where it's already there</label>
-                            <div id="cdUpdateNavHelp" class="form-text">Gives existing links the link name and the shown or hidden setting above. Off: existing links are left as they are. A link that comes from the account's tool can't be changed from a course. Doesn't touch module links or the key and secret.</div>
+                            <div id="cdUpdateNavHelp" class="form-text">Gives existing links the link name and the "who sees it" setting above. Off: existing links are left as they are. A link that comes from the account's tool can't be changed from a course. Doesn't touch module links or the key and secret.</div>
                         </div>
                     </div>
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="checkbox" id="cdCreateModule" name="create_module" <?= $cdDefaults['create_module'] ? 'checked' : '' ?>>
-                        <label class="form-check-label" for="cdCreateModule">Also add an unpublished module with a link to SLO Cloud</label>
+                        <label class="form-check-label" for="cdCreateModule">Also add a module with a link to SLO Cloud</label>
                     </div>
                     <div class="mb-3 ms-4">
                         <label for="cdModuleName" class="form-label">Module name</label>
@@ -306,16 +317,22 @@ $cdWorkerFresh = $queue->workerFresh();
                             aria-describedby="cdModuleNameHelp cdModuleNameError">
                         <div id="cdModuleNameHelp" class="form-text">An existing module with this name is reused.</div>
                         <div id="cdModuleNameError" class="invalid-feedback"></div>
+                        <label for="cdModulePublished" class="form-label mt-2">Who sees the module</label>
+                        <select class="form-select" id="cdModulePublished" name="module_published" aria-describedby="cdModulePublishedHelp">
+                            <option value="0">Unpublished: teachers and admins only</option>
+                            <option value="1">Published: everyone in the course</option>
+                        </select>
+                        <div id="cdModulePublishedHelp" class="form-text">A module this run creates is set this way. An existing module with this name keeps its own setting, and the run notes when it differs. With Published, the link added is published too.</div>
                     </div>
                     <div class="form-check mb-2" id="cdUpdateWrap">
                         <input class="form-check-input" type="checkbox" id="cdUpdateExisting">
-                        <label class="form-check-label" for="cdUpdateExisting">Also update tools that are already in the course to use these credentials</label>
-                        <div class="form-text">Gives course tools with this launch URL the key and secret above. Leave off to keep working tools as they are. A dry run lists which would change. Account-level tools can't be changed from a course.</div>
+                        <label class="form-check-label" for="cdUpdateExisting">Also update tools that are already in the course to use these credentials and privacy</label>
+                        <div class="form-text">Gives course tools with this launch URL the key, secret and privacy above. Leave off to keep working tools as they are. A dry run lists which would change. Account-level tools can't be changed from a course.</div>
                     </div>
                     <div class="form-check mb-2 d-none" id="cdFixAccountNavWrap">
                         <input class="form-check-input" type="checkbox" id="cdFixAccountNav">
                         <label class="form-check-label" for="cdFixAccountNav">Add the nav link to the account's SLO Cloud tool</label>
-                        <div class="form-text">Adds the nav link once on the account's SLO Cloud tool, so courses under it get the link, shown or hidden as set above. Needs an admin token. A dry run only reports it.</div>
+                        <div class="form-text">Adds the nav link once on the account's SLO Cloud tool, so courses under it get the link, seen by whoever is chosen above. Needs an admin token. A dry run only reports it.</div>
                     </div>
                     <div class="mb-0 mt-3">
                         <label for="cdDelay" class="form-label">Delay between courses (milliseconds)</label>
@@ -463,8 +480,8 @@ $cdWorkerFresh = $queue->workerFresh();
             </div>
             <div class="card-body">
                 <ul class="mb-0">
-                    <li>A course navigation tab that only instructors, TAs, and designers can see, shown or hidden at first as you choose.</li>
-                    <li>Optionally, an unpublished module with a link to SLO Cloud.</li>
+                    <li>A course navigation tab for teachers and admins, or for everyone in the course, or hidden until a teacher turns it on.</li>
+                    <li>Optionally, a module with a link to SLO Cloud, unpublished (teachers only) or published.</li>
                     <li>Courses only get what they're missing. If SLO Cloud comes from the account without a nav link, the course gets its own copy to carry it.</li>
                     <li>Blueprint child courses are skipped; deploy to the Blueprint course and let sync apply it.</li>
                     <li>Runs are queued and go one at a time, in order. Follow them in Runs and queue.</li>
@@ -529,7 +546,8 @@ $cdWorkerFresh = $queue->workerFresh();
         pickedTotal: byId('cdPickedTotal'), pickedEmpty: byId('cdPickedEmpty'), adminScopes: byId('cdAdminScopes'),
         flagsStatus: byId('cdFlagsStatus'), fixAccountNav: byId('cdFixAccountNav'), fixAccountNavWrap: byId('cdFixAccountNavWrap'),
         adminAccounts: byId('cdAdminAccounts'), scopePicked: byId('cdScopePicked'),
-        navOptions: byId('cdNavOptions'), navDefault: byId('cdNavDefault'), updateNav: byId('cdUpdateNav'),
+        navOptions: byId('cdNavOptions'), navVisibility: byId('cdNavVisibility'), updateNav: byId('cdUpdateNav'),
+        privacy: byId('cdPrivacy'), modulePublished: byId('cdModulePublished'),
     };
     const fieldInputs = {
         base_url: ['cdBaseUrl', 'cdBaseUrlError'], canvas_token: ['cdToken', 'cdTokenError'], link_name: ['cdLinkName', 'cdLinkNameError'],
@@ -548,8 +566,11 @@ $cdWorkerFresh = $queue->workerFresh();
     config.defaults.update_existing = false;
     config.defaults.create_nav = true;
     config.defaults.update_nav = false;
-    config.defaults.nav_default = 'enabled';
-    const BOOL_KEYS = ['create_module', 'create_nav', 'update_existing', 'fix_account_nav', 'update_nav'];
+    config.defaults.nav_visibility = 'admins';
+    config.defaults.privacy_level = 'public';
+    config.defaults.module_published = false;
+    const BOOL_KEYS = ['create_module', 'create_nav', 'update_existing', 'fix_account_nav', 'update_nav', 'module_published'];
+    const optionText = (select, value) => (Array.from(select.options).find((option) => option.value === String(value)) || {}).text || '';
     const operation = () => (els.opRemove.checked ? 'remove' : 'deploy');
     let terms = [];
     let run = null;
@@ -665,8 +686,10 @@ $cdWorkerFresh = $queue->workerFresh();
             link_name: els.linkName.value.trim(),
             create_nav: els.createNav.checked && operation() === 'deploy' ? '1' : '0',
             update_nav: els.updateNav.checked && els.createNav.checked && operation() === 'deploy' ? '1' : '0',
-            nav_default: els.navDefault.value === 'disabled' ? 'disabled' : 'enabled',
+            nav_visibility: els.navVisibility.value,
+            privacy_level: els.privacy.value,
             create_module: els.createModule.checked ? '1' : '0',
+            module_published: els.createModule.checked && els.modulePublished.value === '1' ? '1' : '0',
             module_name: els.moduleName.value.trim(),
             course_delay_ms: els.delay.value.trim(),
             operation: operation(),
@@ -681,8 +704,10 @@ $cdWorkerFresh = $queue->workerFresh();
     const wire = (settings) => (settings.scope === 'picked' ? Object.assign({}, settings, { scope: 'course' }) : settings);
 
     function describe(key, value, scope) {
+        if (key === 'module_published') return value === true || value === '1' ? 'Published' : 'Unpublished';
         if (BOOL_KEYS.includes(key)) return value === true || value === '1' ? 'Yes' : 'No';
-        if (key === 'nav_default') return value === 'disabled' ? 'Hidden until turned on' : 'Shown';
+        if (key === 'nav_visibility') return optionText(els.navVisibility, value);
+        if (key === 'privacy_level') return optionText(els.privacy, value);
         if (key === 'scope') return labels.scope[value] || 'Not chosen';
         if (key === 'scope_value') {
             if (scope === 'term') {
@@ -707,7 +732,7 @@ $cdWorkerFresh = $queue->workerFresh();
     function renderSummary() {
         const current = currentSettings();
         const rows = [
-            ['Canvas URL', 'base_url'], ['Action', 'operation'], ['Update existing tools', 'update_existing'], ['Add nav to account tool', 'fix_account_nav'], ['Link name', 'link_name'], ['Add navigation', 'create_nav'], ['Nav links are', 'nav_default'], ['Update existing nav links', 'update_nav'], ['Add module', 'create_module'], ['Module name', 'module_name'],
+            ['Canvas URL', 'base_url'], ['Action', 'operation'], ['Update existing tools', 'update_existing'], ['Add nav to account tool', 'fix_account_nav'], ['Link name', 'link_name'], ['Privacy', 'privacy_level'], ['Add navigation', 'create_nav'], ['Who sees the nav link', 'nav_visibility'], ['Update existing nav links', 'update_nav'], ['Add module', 'create_module'], ['Module name', 'module_name'], ['Module is', 'module_published'],
             ['Delay between courses', 'course_delay_ms'], ['Courses', 'scope'], ['Course IDs or term', 'scope_value'],
         ];
         let changed = 0;
@@ -716,7 +741,9 @@ $cdWorkerFresh = $queue->workerFresh();
             if (key === 'update_existing') return current.operation === 'deploy';
             if (key === 'fix_account_nav') return connectedAdmin && current.operation === 'deploy';
             if (key === 'create_nav') return current.operation === 'deploy';
-            if (key === 'nav_default' || key === 'update_nav') return current.operation === 'deploy' && current.create_nav === '1';
+            if (key === 'nav_visibility' || key === 'update_nav') return current.operation === 'deploy' && current.create_nav === '1';
+            if (key === 'privacy_level') return current.operation === 'deploy';
+            if (key === 'module_published') return current.operation === 'deploy' && current.create_module === '1';
             return true;
         };
         rows.filter(([, key]) => offered(key)).forEach(([label, key]) => {
@@ -751,6 +778,7 @@ $cdWorkerFresh = $queue->workerFresh();
         els.courseIdsWrap.classList.toggle('d-none', scope !== 'course');
         els.termWrap.classList.toggle('d-none', scope !== 'term');
         els.moduleName.disabled = !els.createModule.checked || !!(run && run.active);
+        els.modulePublished.disabled = els.moduleName.disabled;
         renderSummary();
     }
 
@@ -774,6 +802,7 @@ $cdWorkerFresh = $queue->workerFresh();
         });
         if (!locked) {
             els.moduleName.disabled = !els.createModule.checked;
+            els.modulePublished.disabled = els.moduleName.disabled;
             syncLti();
             syncNav();
         }
@@ -1704,7 +1733,9 @@ $cdWorkerFresh = $queue->workerFresh();
         lti_launch_url: els.ltiUrl.value.trim(),
         link_name: els.linkName.value.trim(),
         create_nav: els.createNav.checked,
-        nav_default: els.navDefault.value,
+        nav_visibility: els.navVisibility.value,
+        privacy_level: els.privacy.value,
+        module_published: els.modulePublished.value,
         create_module: els.createModule.checked,
         module_name: els.moduleName.value.trim(),
         course_delay_ms: els.delay.value.trim(),
@@ -1727,7 +1758,10 @@ $cdWorkerFresh = $queue->workerFresh();
         if (els.ltiOwn.checked) text(els.ltiUrl, saved.lti_launch_url);
         text(els.linkName, saved.link_name);
         if (typeof saved.create_nav === 'boolean') els.createNav.checked = saved.create_nav;
-        if (saved.nav_default === 'enabled' || saved.nav_default === 'disabled') els.navDefault.value = saved.nav_default;
+        const pick = (select, value) => { if (Array.from(select.options).some((option) => option.value === value)) select.value = value; };
+        pick(els.navVisibility, saved.nav_visibility);
+        pick(els.privacy, saved.privacy_level);
+        pick(els.modulePublished, saved.module_published);
         if (typeof saved.create_module === 'boolean') els.createModule.checked = saved.create_module;
         text(els.moduleName, saved.module_name);
         if (/^\d+$/.test(String(saved.course_delay_ms || ''))) els.delay.value = saved.course_delay_ms;
@@ -1776,10 +1810,12 @@ $cdWorkerFresh = $queue->workerFresh();
                     ? 'Remove SLO Cloud from ' + scopeText + '? This deletes the course tool and its module link in every one of those courses, and cannot be undone from here. Click Confirm to start, or change anything to cancel.'
                     : 'Deploy SLO Cloud to ' + scopeText + '? This adds the tool' + (settings.create_nav === '1' ? ', nav link' : '') + (settings.create_module === '1' ? ' and module link' : '')
                         + ' wherever a course is missing them'
-                        + (settings.create_nav === '1' ? ', with the nav link ' + (settings.nav_default === 'disabled' ? 'hidden until a teacher turns it on' : 'shown') : '') + '. '
-                        + (settings.update_existing === '1' ? 'Tools already in a course are given these credentials. '
-                            : (settings.update_nav === '1' ? 'Tools already in a course keep their credentials. ' : 'Existing installs are left alone. '))
-                        + (settings.update_nav === '1' ? 'Nav links already in a course get this link name and shown or hidden setting. ' : '')
+                        + ', sending ' + optionText(els.privacy, settings.privacy_level).toLowerCase()
+                        + (settings.create_nav === '1' ? ', with the nav link ' + ({ admins: 'for teachers and admins', members: 'for everyone in the course', hidden: 'hidden until a teacher turns it on' }[settings.nav_visibility] || '') : '')
+                        + (settings.create_module === '1' ? ', and a new module ' + (settings.module_published === '1' ? 'published' : 'unpublished') : '') + '. '
+                        + (settings.update_existing === '1' ? 'Tools already in a course are given these credentials and privacy. '
+                            : (settings.update_nav === '1' ? 'Tools already in a course keep their credentials and privacy. ' : 'Existing installs are left alone. '))
+                        + (settings.update_nav === '1' ? 'Nav links already in a course get this link name and visibility. ' : '')
                         + 'Click Confirm to start, or change anything to cancel.';
                 els.confirmNote.classList.remove('d-none');
                 return;
@@ -1826,7 +1862,7 @@ $cdWorkerFresh = $queue->workerFresh();
         const deploying = operation() === 'deploy';
         els.navOptions.classList.toggle('d-none', !deploying);
         const off = !els.createNav.checked || !deploying;
-        els.navDefault.disabled = off;
+        els.navVisibility.disabled = off;
         els.updateNav.disabled = off;
         if (!els.createNav.checked || !deploying) els.updateNav.checked = false;
     }

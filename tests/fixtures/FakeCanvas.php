@@ -186,6 +186,10 @@ final class FakeCanvas
                 $modules = &$this->state['courses'][$course['id']]['modules'];
                 foreach ($modules as $index => $module) {
                     if ($module['id'] === (int)$m[1]) {
+                        if (isset($form['module']['published'])) {
+                            $module['published'] = $form['module']['published'] === 'true';
+                            $modules[$index] = $module;
+                        }
                         if ((int)($form['module']['position'] ?? 0) === 1) {
                             array_splice($modules, $index, 1);
                             array_unshift($modules, $module);
@@ -206,11 +210,30 @@ final class FakeCanvas
                 }
                 return self::json(404, ['errors' => [['message' => 'module not found']]]);
             }),
+            'PUT /api/v1/courses/:id/modules/:id/items/:id' => $this->course($path, function (array $course) use ($form, $path): array {
+                preg_match('#/modules/(\d+)/items/(\d+)#', $path, $m);
+                foreach ($this->state['courses'][$course['id']]['modules'] as &$module) {
+                    if ($module['id'] === (int)$m[1]) {
+                        foreach ($module['items'] as &$item) {
+                            if ($item['id'] === (int)$m[2]) {
+                                if (isset($form['module_item']['published'])) {
+                                    $item['published'] = $form['module_item']['published'] === 'true';
+                                }
+                                return self::json(200, $item);
+                            }
+                        }
+                    }
+                }
+                return self::json(404, ['errors' => [['message' => 'module item not found']]]);
+            }),
             'PUT /api/v1/courses/:id/external_tools/:id' => $this->course($path, function (array $course) use ($path, $form): array {
                 preg_match('#/external_tools/(\d+)#', $path, $toolMatch);
                 foreach ($this->state['courses'][$course['id']]['tools'] as &$tool) {
                     if ($tool['id'] === (int)$toolMatch[1]) {
                         $tool['consumer_key'] = (string)($form['consumer_key'] ?? $tool['consumer_key']);
+                        if (array_key_exists('privacy_level', $form)) {
+                            $tool['privacy_level'] = (string)$form['privacy_level'];
+                        }
                         if (array_key_exists('shared_secret', $form)) {
                             $tool['shared_secret_set'] = $form['shared_secret'] !== '';
                         }

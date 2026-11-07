@@ -84,7 +84,7 @@ final class CanvasDeployRun
         'module_would_add', 'module_present', 'warnings', 'failed', 'skipped', 'out_of_scope',
         'tool_removed', 'tool_would_remove', 'tool_absent', 'module_removed', 'module_would_remove',
         'tool_updated', 'tool_would_update', 'nav_added', 'nav_would_add', 'nav_present', 'nav_not_added',
-        'tool_copied', 'tool_would_copy',
+        'tool_copied', 'tool_would_copy', 'nav_updated', 'nav_would_update',
     ];
 
     private array $store;
@@ -278,6 +278,11 @@ final class CanvasDeployRun
             && filter_var($input['fix_account_nav'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $settings['create_nav'] = $settings['operation'] === 'deploy'
             && filter_var($input['create_nav'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        // "Update if found" for the nav link, separate from update_existing (the tool's key and
+        // secret). It belongs to the nav choice, so it only applies when nav links are wanted.
+        $settings['update_nav'] = $settings['create_nav']
+            && filter_var($input['update_nav'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $settings['nav_default'] = CanvasLtiDeployer::navDefault((string)($input['nav_default'] ?? 'enabled'));
         return ['settings' => $settings, 'errors' => $errors];
     }
 
@@ -577,7 +582,7 @@ final class CanvasDeployRun
                 $label = 'Account "' . (string)($account['name'] ?? $account['id']) . '": SLO Cloud ' . CanvasLtiDeployer::describeTool($match);
                 if (empty($settings['dry_run'])) {
                     $client->put('/api/v1/accounts/' . (int)$account['id'] . '/external_tools/' . (int)$match['id'], [
-                        'course_navigation' => CanvasLtiDeployer::navPlacement($settings['link_name']),
+                        'course_navigation' => CanvasLtiDeployer::navPlacement($settings['link_name'], $settings['nav_default'] ?? 'enabled'),
                     ]);
                     $notes[] = $label . ': Course Navigation link added.';
                 } else {
@@ -611,6 +616,9 @@ final class CanvasDeployRun
         }
         if ($accountTool) {
             $notes[] = 'SLO Cloud is already installed at the account level, so per-course tool checks are skipped.';
+            if (!empty($settings['update_nav'])) {
+                $notes[] = 'Its nav link comes from the account tool, so "Update the nav link" changes nothing in these courses.';
+            }
         }
 
         $runId = bin2hex(random_bytes(16));
@@ -660,6 +668,9 @@ final class CanvasDeployRun
             'dry_run' => $settings['dry_run'],
             'operation' => $settings['operation'],
             'update_existing' => $settings['update_existing'],
+            'create_nav' => $settings['create_nav'],
+            'update_nav' => $settings['update_nav'],
+            'nav_default' => $settings['nav_default'],
             'create_module' => $settings['create_module'],
             'account_tool' => $accountTool,
         ]);
@@ -709,6 +720,8 @@ final class CanvasDeployRun
             'account_tool' => $run['account_tool'],
             'account_nav_fixed' => $run['account_nav_fixed'] ?? false,
             'create_nav' => $run['settings']['create_nav'] ?? false,
+            'update_nav' => $run['settings']['update_nav'] ?? false,
+            'nav_default' => $run['settings']['nav_default'] ?? 'enabled',
         ], $this->sisInspector);
 
         $delay = $run['settings']['course_delay_ms'] / 1000;
@@ -885,10 +898,12 @@ final class CanvasDeployRun
             default => null,
         };
         // Runs started before the nav counts existed have no such keys yet.
-        $counts += array_fill_keys(['nav_added', 'nav_would_add', 'nav_present', 'nav_not_added'], 0);
+        $counts += array_fill_keys(['nav_added', 'nav_would_add', 'nav_present', 'nav_not_added', 'nav_updated', 'nav_would_update'], 0);
         match ($row['nav'] ?? '') {
             'added' => $counts['nav_added']++,
             'would_add' => $counts['nav_would_add']++,
+            'updated' => $counts['nav_updated']++,
+            'would_update' => $counts['nav_would_update']++,
             'present' => $counts['nav_present']++,
             'not_added' => $counts['nav_not_added']++,
             default => null,

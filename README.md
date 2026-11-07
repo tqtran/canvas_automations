@@ -10,6 +10,11 @@ A Canvas account-admin token also gets the term / all active / all courses optio
 - Dry run first: it reports what would change and writes nothing.
 - Courses that already have the tool are left alone, unless "update tools that are already
   in the course" is ticked, which gives them the key and secret of this run.
+- The Course Navigation link can start out shown or hidden (hidden links wait under the
+  course's Settings > Navigation for a teacher to turn them on). "Update the nav link where
+  it's already there", ticked separately, gives existing links this run's link name and
+  shown/hidden setting; it changes nothing else. A link that comes from an account-level
+  tool can't be changed from a course, and the run says so.
 - Runs go into a queue on the server and are done one at a time, first come, first served:
   a run started while another is going waits its turn, and the page shows how many runs are
   ahead. A scheduled worker moves the queue along; while no worker is running, any open copy

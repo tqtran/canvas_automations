@@ -11,7 +11,8 @@ require_once __DIR__ . '/CanvasClient.php';
  * or resuming one interrupted mid-way, never creates duplicates.
  *
  * Settings: launch_url, consumer_key, consumer_secret, link_name,
- * create_module, module_name, dry_run, account_tool, update_existing.
+ * create_module, module_name, dry_run, account_tool, update_existing,
+ * create_nav, update_nav, nav_default.
  */
 final class CanvasLtiDeployer
 {
@@ -120,10 +121,31 @@ final class CanvasLtiDeployer
         return array_key_exists('course_navigation', $tool) && empty($tool['course_navigation']);
     }
 
-    /** The Course Navigation placement this tool installs: visible to teachers and admins. */
-    public static function navPlacement(string $linkName): array
+    /**
+     * The Course Navigation placement this tool installs: visible to teachers and admins.
+     * $default 'disabled' puts the link in the hidden list under Settings > Navigation,
+     * where a teacher can turn it on.
+     */
+    public static function navPlacement(string $linkName, string $default = 'enabled'): array
     {
-        return ['enabled' => 'true', 'visibility' => 'admins', 'default' => 'enabled', 'text' => $linkName];
+        return ['enabled' => 'true', 'visibility' => 'admins', 'default' => self::navDefault($default), 'text' => $linkName];
+    }
+
+    /** 'enabled' or 'disabled'; anything else counts as 'enabled', as Canvas does. */
+    public static function navDefault(mixed $value): string
+    {
+        return $value === 'disabled' ? 'disabled' : 'enabled';
+    }
+
+    /** Whether a tool's existing nav link differs from the one this run would set. */
+    public static function navDiffers(array $tool, string $linkName, string $default): bool
+    {
+        $nav = is_array($tool['course_navigation'] ?? null) ? $tool['course_navigation'] : [];
+        $enabled = $nav['enabled'] ?? true;
+        return trim((string)($nav['text'] ?? '')) !== trim($linkName)
+            || self::navDefault($nav['default'] ?? 'enabled') !== self::navDefault($default)
+            || (string)($nav['visibility'] ?? '') !== 'admins'
+            || $enabled === false || $enabled === 'false';
     }
 
     /**
@@ -190,7 +212,7 @@ final class CanvasLtiDeployer
             'url' => (string)$settings['launch_url'],
         ];
         if ($settings['create_nav'] ?? true) {
-            $payload['course_navigation'] = self::navPlacement((string)$settings['link_name']);
+            $payload['course_navigation'] = self::navPlacement((string)$settings['link_name'], self::navDefault($settings['nav_default'] ?? 'enabled'));
         }
         return $payload;
     }
@@ -415,6 +437,8 @@ final class CanvasLtiDeployer
     private function ensureTool(int $courseId, array &$notes, string &$nav): string
     {
         $nav = 'skipped';
+        // The course's own tools, fetched once when a step needs them.
+        $own = null;
         if (!empty($this->settings['account_tool'])) {
             $nav = 'present';
             return 'present_account';
@@ -441,7 +465,7 @@ final class CanvasLtiDeployer
         if ($match !== null && self::lacksNav($match)) {
             // SLO Cloud is there but has no nav link. A tool that belongs to this course can get
             // one (no key or secret needed); one from the account cannot be changed from here.
-            $own = $this->client->getAll("/api/v1/courses/{$courseId}/external_tools");
+            $own ??= $this->client->getAll("/api/v1/courses/{$courseId}/external_tools");
             $ownMatch = self::findMatchingTool($own, $launchUrl);
             if ($ownMatch === null) {
                 // The run is adding the nav link to the account tool itself (dry run: would).
@@ -476,7 +500,7 @@ final class CanvasLtiDeployer
                     return 'present';
                 }
                 $this->client->put("/api/v1/courses/{$courseId}/external_tools/" . (int)$ownMatch['id'], [
-                    'course_navigation' => self::navPlacement((string)$this->settings['link_name']),
+                    'course_navigation' => self::navPlacement((string)$this->settings['link_name'], $this->navDefaultSetting()),
                 ]);
                 $nav = 'added';
                 return 'present';
@@ -485,12 +509,16 @@ final class CanvasLtiDeployer
         }
         if ($match !== null) {
             $nav = self::lacksNav($match) ? 'off' : 'present';
+            if ($nav === 'present' && !empty($this->settings['create_nav']) && !empty($this->settings['update_nav'])) {
+                $own ??= $this->client->getAll("/api/v1/courses/{$courseId}/external_tools");
+                $nav = $this->updateNav($courseId, self::findMatchingTool($own, $launchUrl), $notes);
+            }
         }
         if ($match !== null) {
             if (!empty($this->settings['update_existing'])) {
                 // Only a tool that belongs to this course can be changed from it; Canvas never
                 // returns the shared secret, so every matching course tool is set again.
-                $own = $this->client->getAll("/api/v1/courses/{$courseId}/external_tools");
+                $own ??= $this->client->getAll("/api/v1/courses/{$courseId}/external_tools");
                 $ownMatch = self::findMatchingTool($own, $launchUrl);
                 if ($ownMatch !== null) {
                     if (!empty($this->settings['dry_run'])) {
@@ -519,6 +547,39 @@ final class CanvasLtiDeployer
         $this->client->post("/api/v1/courses/{$courseId}/external_tools", self::toolPayload($this->settings));
         $nav = $withNav ? 'added' : 'off';
         return 'created';
+    }
+
+    private function navDefaultSetting(): string
+    {
+        return self::navDefault($this->settings['nav_default'] ?? 'enabled');
+    }
+
+    /**
+     * "Update if found" for the nav link: give the course's own tool this run's link name and
+     * shown/hidden default. Returns updated, would_update or present (already the same, or the
+     * link comes from the account, which cannot be changed from a course).
+     */
+    private function updateNav(int $courseId, ?array $ownTool, array &$notes): string
+    {
+        if ($ownTool === null) {
+            $notes[] = 'The nav link comes from the account SLO Cloud tool, so it cannot be updated from this course.';
+            return 'present';
+        }
+        if (self::lacksNav($ownTool)) {
+            return 'present';
+        }
+        $linkName = (string)$this->settings['link_name'];
+        $default = $this->navDefaultSetting();
+        if (!self::navDiffers($ownTool, $linkName, $default)) {
+            return 'present';
+        }
+        if (!empty($this->settings['dry_run'])) {
+            return 'would_update';
+        }
+        $this->client->put("/api/v1/courses/{$courseId}/external_tools/" . (int)$ownTool['id'], [
+            'course_navigation' => self::navPlacement($linkName, $default),
+        ]);
+        return 'updated';
     }
 
     private function ensureModuleItem(int $courseId, array &$notes): string

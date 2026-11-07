@@ -547,7 +547,7 @@ final class DeployQueue
     private static function publicSettings(array $settings): array
     {
         return array_intersect_key($settings, array_flip([
-            'base_url', 'operation', 'dry_run', 'scope', 'scope_value', 'link_name', 'create_nav',
+            'base_url', 'operation', 'dry_run', 'scope', 'scope_value', 'link_name', 'create_nav', 'update_nav', 'nav_default',
             'create_module', 'module_name', 'update_existing', 'fix_account_nav', 'course_delay_ms',
         ]));
     }

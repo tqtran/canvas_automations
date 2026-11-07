@@ -318,6 +318,43 @@ $unpublishedRun = (new CanvasLtiDeployer($fakeClient, $deploySettings))->deployC
 $check(($canvas->state['courses'][1302]['modules'][0]['published'] ?? true) === false && ($canvas->state['courses'][1302]['modules'][0]['items'][0]['published'] ?? true) === false,
     'An unpublished module choice published something.');
 
+// Accounts: install on an account, inherit below it, update, refuse, remove.
+$accountSettings = ['create_nav' => true, 'nav_visibility' => 'members', 'privacy_level' => 'name_only'] + $deploySettings;
+$accountDeployer = new CanvasLtiDeployer($fakeClient, $accountSettings);
+$writes = static fn(): int => count(array_filter($canvas->state['calls'], static fn(string $call): bool => preg_match('#^(POST|PUT|DELETE) /api/v1/accounts/#', $call) === 1));
+$check(CanvasLtiDeployer::inspectAccount($fakeClient, 2, $launch)['app'] === 'no', 'An empty account was not reported as without the tool.');
+$writesBefore = $writes();
+$accountDry = (new CanvasLtiDeployer($fakeClient, ['dry_run' => true] + $accountSettings))->deployAccount(['id' => 2, 'name' => 'Arts']);
+$check($accountDry['tool'] === 'would_create' && $accountDry['nav'] === 'would_add' && $accountDry['kind'] === 'account' && $accountDry['module'] === '' && $writes() === $writesBefore,
+    'An account dry run wrote to Canvas or misreported.');
+$accountCreated = $accountDeployer->deployAccount(['id' => 2, 'name' => 'Arts']);
+$artsTool = $canvas->state['account_tools_by'][2][0] ?? [];
+$check($accountCreated['tool'] === 'created' && $accountCreated['status'] === 'ok' && ($artsTool['privacy_level'] ?? '') === 'name_only'
+    && ($artsTool['course_navigation']['visibility'] ?? '') === 'members' && ($artsTool['consumer_key'] ?? '') === FakeCanvas::CONSUMER_KEY,
+    'The tool was not installed on the account with the chosen settings.');
+$check(CanvasLtiDeployer::inspectAccount($fakeClient, 2, $launch)['app'] === 'here' && CanvasLtiDeployer::inspectAccount($fakeClient, 2, $launch)['nav'] === 'yes'
+    && CanvasLtiDeployer::inspectAccount($fakeClient, 3, $launch)['app'] === 'inherited', 'Installed-here and inherited were not told apart.');
+$writesBefore = $writes();
+$inheritedRow = $accountDeployer->deployAccount(['id' => 3, 'name' => 'Music']);
+$check($inheritedRow['tool'] === 'present_parent' && $inheritedRow['status'] === 'skipped' && $writes() === $writesBefore
+    && str_contains(implode(' ', $inheritedRow['notes']), 'parent account'), 'A sub-account that inherits the tool got a second copy.');
+$again = $accountDeployer->deployAccount(['id' => 2, 'name' => 'Arts']);
+$check($again['tool'] === 'present' && $again['nav'] === 'present' && $writes() === $writesBefore, 'Re-running an account was not idempotent.');
+$accountUpdated = (new CanvasLtiDeployer($fakeClient, ['update_nav' => true, 'update_existing' => true, 'link_name' => 'Renamed', 'privacy_level' => 'anonymous'] + $accountSettings))
+    ->deployAccount(['id' => 2, 'name' => 'Arts']);
+$artsTool = $canvas->state['account_tools_by'][2][0] ?? [];
+$check($accountUpdated['tool'] === 'updated' && $accountUpdated['nav'] === 'updated' && ($artsTool['course_navigation']['text'] ?? '') === 'Renamed'
+    && ($artsTool['privacy_level'] ?? '') === 'anonymous', 'An account tool was not updated.');
+$refused = $accountDeployer->deployAccount(['id' => 4, 'name' => 'Science']);
+$check($refused['status'] === 'failed' && str_contains(implode(' ', $refused['notes']), 'Canvas refused this account') && ($canvas->state['account_tools_by'][4] ?? []) === [],
+    'A refused account was not reported as a permission failure.');
+$check($accountDeployer->removeAccount(['id' => 3, 'name' => 'Music'])['tool'] === 'present_parent', 'An inherited tool was removed from a sub-account.');
+$writesBefore = $writes();
+$check((new CanvasLtiDeployer($fakeClient, ['dry_run' => true] + $accountSettings))->removeAccount(['id' => 2, 'name' => 'Arts'])['tool'] === 'would_remove' && $writes() === $writesBefore,
+    'An account removal dry run wrote to Canvas.');
+$check($accountDeployer->removeAccount(['id' => 2, 'name' => 'Arts'])['tool'] === 'removed' && ($canvas->state['account_tools_by'][2] ?? []) === []
+    && CanvasLtiDeployer::inspectAccount($fakeClient, 3, $launch)['app'] === 'no', 'The account tool was not removed.');
+
 // --- Run service ------------------------------------------------------------------------
 $lockRoot = sys_get_temp_dir() . '/lti-deploy-test-' . bin2hex(random_bytes(4));
 $lti = ['launch_url' => $launch, 'consumer_key' => FakeCanvas::CONSUMER_KEY, 'consumer_secret' => FakeCanvas::CONSUMER_SECRET];
@@ -972,6 +1009,30 @@ $check(($navRows[1002]['nav'] ?? '') === 'updated' && ($navRows[1001]['nav'] ?? 
 $check(($canvas->state['courses'][1001]['tools'][0]['course_navigation']['default'] ?? '') === 'disabled', 'A run did not create the nav link hidden.');
 $check(($canvas->state['courses'][1001]['tools'][0]['consumer_key'] ?? '') === FakeCanvas::CONSUMER_KEY, 'A run queued with a plain-text consumer key lost it.');
 $navService->dispatch('run_finish', ['run_id' => $navRun['body']['run_id'], 'run_key' => $navRun['body']['run_key']]);
+
+// Account runs: list the tree, check status, install on chosen accounts.
+$accountValid = CanvasDeployRun::validateSettings($settings(['scope' => 'account', 'scope_value' => '2, 4', 'fix_account_nav' => '1']))['settings'];
+$check($accountValid['scope_value'] === '2,4' && $accountValid['fix_account_nav'] === false, 'Account scope settings were not read, or the course-run nav fix kept.');
+$check(isset(CanvasDeployRun::validateSettings($settings(['scope' => 'account', 'scope_value' => '']))['errors']['scope_value']), 'An account run with no account was accepted.');
+$tree = $navService->dispatch('accounts', $settings());
+$check(array_map(static fn(array $a): string => $a['name'] . ':' . $a['depth'] . ':' . $a['below'], $tree['body']['accounts'] ?? [])
+    === ['Example College:0:3', 'Arts:1:1', 'Music:2:0', 'Science:1:0'] && ($tree['body']['accounts'][0]['root'] ?? false) === true,
+    'The account tree was not listed in order with depth and size: ' . json_encode($tree['body']));
+$accountRun = $navService->dispatch('run_start', $settings(['scope' => 'account', 'scope_value' => '2,4', 'create_nav' => '1']));
+$batches = [];
+$rows = $runAll($navService, $accountRun['body']['run_id'], $accountRun['body']['run_key'], $batches);
+$accountRows = array_column(array_filter($rows, 'is_array'), null, 'course_id');
+$check(($accountRows[2]['tool'] ?? '') === 'created' && ($accountRows[2]['name'] ?? '') === 'Arts' && ($accountRows[4]['status'] ?? '') === 'failed'
+    && (end($batches)['counts']['processed'] ?? 0) === 2 && (end($batches)['counts']['tool_created'] ?? 0) === 1, 'An account run did not install and report per account: ' . json_encode($accountRows));
+$navService->dispatch('run_finish', ['run_id' => $accountRun['body']['run_id'], 'run_key' => $accountRun['body']['run_key']]);
+$flags = $navService->dispatch('account_flags', $settings(['account_ids' => '1,2,3']));
+$check(($flags['body']['flags']['1']['app'] ?? '') === 'no' && ($flags['body']['flags']['2']['app'] ?? '') === 'here' && ($flags['body']['flags']['3']['app'] ?? '') === 'inherited',
+    'Account flags were wrong: ' . json_encode($flags['body']));
+$teacherStore = [];
+$teacherCanvas = new FakeCanvas(FakeCanvas::scenario(['fresh_courses' => 0, 'non_admin' => true]), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
+$teacherService = $newService($teacherStore, $teacherCanvas, $clock)->forQueue();
+$check(($teacherService->dispatch('run_start', $settings(['scope' => 'account', 'scope_value' => '2']))['body']['error'] ?? '') === 'not_admin'
+    && ($teacherService->dispatch('accounts', $settings())['body']['error'] ?? '') === 'not_admin', 'A non-admin token could list or deploy to accounts.');
 
 // The queue key is generated once and reused.
 $keyDir = $lockRoot . '/keys';

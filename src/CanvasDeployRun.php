@@ -56,10 +56,13 @@ final class CanvasDeployRun
     public const MAX_STALLED_BATCHES = 3;
     public const MAX_COURSE_IDS = 500;
     public const MAX_COURSE_PAGES = 30;
+    /** Most accounts chosen in one run, and pages read when listing an account's sub-accounts. */
+    public const MAX_ACCOUNT_IDS = 50;
+    public const MAX_ACCOUNT_PAGES = 20;
     /** Canvas enrollment type => label, for the roles that can add a course tool. */
     private const COURSE_ROLES = ['teacher' => 'Teacher', 'ta' => 'TA', 'designer' => 'Designer'];
     public const MAX_DELAY_MS = 10000;
-    public const SCOPES = ['course', 'term', 'active', 'all'];
+    public const SCOPES = ['course', 'account', 'term', 'active', 'all'];
     public const DEFAULTS = [
         'base_url' => '',
         'link_name' => 'External Tool',
@@ -262,6 +265,15 @@ final class CanvasDeployRun
                 $errors['scope_value'] = 'Enter at most ' . self::MAX_COURSE_IDS . ' course IDs; use a term for larger groups.';
             }
             $settings['scope_value'] = implode(',', array_map('intval', $valid));
+        } elseif ($settings['scope'] === 'account') {
+            $ids = preg_split('/[\s,]+/', trim((string)($input['scope_value'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            $valid = array_values(array_unique(array_filter($ids, static fn(string $id): bool => ctype_digit($id) && (int)$id > 0)));
+            if ($ids === [] || count($valid) !== count(array_unique($ids))) {
+                $errors['scope_value'] = 'Choose one or more accounts.';
+            } elseif (count($valid) > self::MAX_ACCOUNT_IDS) {
+                $errors['scope_value'] = 'Choose at most ' . self::MAX_ACCOUNT_IDS . ' accounts in one run.';
+            }
+            $settings['scope_value'] = implode(',', array_map('intval', $valid));
         } elseif ($settings['scope'] === 'term') {
             $term = trim((string)($input['scope_value'] ?? ''));
             if (!ctype_digit($term) || (int)$term <= 0) {
@@ -274,7 +286,8 @@ final class CanvasDeployRun
         $settings['operation'] = ($input['operation'] ?? 'deploy') === 'remove' ? 'remove' : 'deploy';
         $settings['update_existing'] = $settings['operation'] === 'deploy'
             && filter_var($input['update_existing'] ?? false, FILTER_VALIDATE_BOOLEAN);
-        $settings['fix_account_nav'] = $settings['operation'] === 'deploy'
+        // Installing on accounts sets their nav link directly, so this course-run option is off.
+        $settings['fix_account_nav'] = $settings['operation'] === 'deploy' && $settings['scope'] !== 'account'
             && filter_var($input['fix_account_nav'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $settings['create_nav'] = $settings['operation'] === 'deploy'
             && filter_var($input['create_nav'] ?? false, FILTER_VALIDATE_BOOLEAN);
@@ -321,6 +334,15 @@ final class CanvasDeployRun
                     return self::ok($this->terms((string)($input['base_url'] ?? ''), (string)($input['canvas_token'] ?? '')));
                 case 'courses':
                     return self::ok($this->courses((string)($input['base_url'] ?? ''), (string)($input['canvas_token'] ?? '')));
+                case 'accounts':
+                    return self::ok($this->accounts((string)($input['base_url'] ?? ''), (string)($input['canvas_token'] ?? '')));
+                case 'account_flags':
+                    return self::ok($this->accountFlags(
+                        (string)($input['base_url'] ?? ''),
+                        (string)($input['canvas_token'] ?? ''),
+                        (string)($input['lti_launch_url'] ?? ''),
+                        (string)($input['account_ids'] ?? '')
+                    ));
                 case 'course_flags':
                     return self::ok($this->courseFlags(
                         (string)($input['base_url'] ?? ''),
@@ -426,6 +448,111 @@ final class CanvasDeployRun
                     throw $exception;
                 }
                 $flags[(string)$id] = ['app' => 'error', 'nav' => 'error', 'module' => 'error', 'tool' => $exception->getMessage()];
+            }
+        }
+        return ['flags' => $flags, 'pending' => $pending, 'launch_url_known' => true];
+    }
+
+    /**
+     * Every account the token administers, sub-accounts included, in tree order with a depth
+     * and how many sub-accounts sit below each. Canvas, not this list, decides what the token
+     * may change: seeing an account does not mean its role can manage apps there.
+     */
+    public function accounts(string $baseUrl, string $token): array
+    {
+        $client = $this->client($baseUrl, $token, $this->now() + self::HARD_DEADLINE);
+        $admin = $this->adminAccounts($client, false);
+        if ($admin === []) {
+            throw self::notAdmin();
+        }
+        $byId = [];
+        foreach ($admin as $account) {
+            $byId[(int)$account['id']] = $account;
+        }
+        $partial = false;
+        foreach (self::topAccounts($admin) as $top) {
+            try {
+                $rows = $client->getAll('/api/v1/accounts/' . (int)$top['id'] . '/sub_accounts', ['recursive' => 'true'], null, self::MAX_ACCOUNT_PAGES);
+            } catch (CanvasDeadlineExceeded $exception) {
+                throw $exception;
+            } catch (CanvasApiException $exception) {
+                if ($exception->status() === 401) {
+                    throw $exception;
+                }
+                $partial = true;
+                continue;
+            }
+            foreach ($rows as $row) {
+                if (is_array($row) && isset($row['id'])) {
+                    $byId[(int)$row['id']] ??= $row;
+                }
+            }
+        }
+        $children = [];
+        foreach ($byId as $id => $account) {
+            $parent = isset($account['parent_account_id']) ? (int)$account['parent_account_id'] : 0;
+            $children[isset($byId[$parent]) ? $parent : 0][] = $id;
+        }
+        foreach ($children as &$list) {
+            usort($list, static fn(int $a, int $b): int => strcasecmp((string)($byId[$a]['name'] ?? ''), (string)($byId[$b]['name'] ?? '')));
+        }
+        unset($list);
+        $out = [];
+        $walk = function (int $parent, int $depth) use (&$walk, &$out, $children, $byId): int {
+            $count = 0;
+            foreach ($children[$parent] ?? [] as $id) {
+                $index = count($out);
+                $out[] = [
+                    'id' => $id,
+                    'name' => (string)($byId[$id]['name'] ?? ('Account ' . $id)),
+                    'parent_id' => $depth === 0 ? null : $parent,
+                    'root' => empty($byId[$id]['parent_account_id']),
+                    'depth' => $depth,
+                    'below' => 0,
+                ];
+                $below = $walk($id, $depth + 1);
+                $out[$index]['below'] = $below;
+                $count += 1 + $below;
+            }
+            return $count;
+        };
+        $walk(0, 0);
+        return ['accounts' => $out, 'partial' => $partial, 'max_selectable' => self::MAX_ACCOUNT_IDS];
+    }
+
+    /**
+     * Whether each account has the tool installed on it, inherits it from a parent account, or
+     * neither; read-only, up to FLAGS_PER_CALL accounts per call.
+     */
+    public function accountFlags(string $baseUrl, string $token, string $launchUrl, string $accountIds): array
+    {
+        $launchUrl = trim($launchUrl) !== '' ? trim($launchUrl) : trim((string)($this->lti['launch_url'] ?? ''));
+        if ($launchUrl === '') {
+            return ['flags' => [], 'launch_url_known' => false];
+        }
+        $ids = array_slice(array_values(array_unique(array_filter(
+            array_map('intval', preg_split('/[\s,]+/', $accountIds, -1, PREG_SPLIT_NO_EMPTY) ?: []),
+            static fn(int $id): bool => $id > 0
+        ))), 0, self::FLAGS_PER_CALL);
+        $started = $this->now();
+        $client = $this->client($baseUrl, $token, $started + self::FLAGS_HARD_SECONDS);
+        $flags = [];
+        $pending = [];
+        foreach ($ids as $index => $id) {
+            if ($index > 0 && $this->now() - $started > self::FLAGS_SOFT_SECONDS) {
+                $pending = array_slice($ids, $index);
+                break;
+            }
+            try {
+                $flags[(string)$id] = CanvasLtiDeployer::inspectAccount($client, $id, $launchUrl);
+            } catch (CanvasDeadlineExceeded) {
+                $pending = array_slice($ids, $index);
+                break;
+            } catch (CanvasApiException $exception) {
+                if ($exception->status() === 401) {
+                    throw $exception;
+                }
+                $flags[(string)$id] = ['app' => 'error', 'nav' => 'error', 'tool' => $exception->getMessage()];
             }
         }
         return ['flags' => $flags, 'pending' => $pending, 'launch_url_known' => true];
@@ -598,8 +725,11 @@ final class CanvasDeployRun
             }
         }
 
-        $accountTool = $accounts !== [];
-        foreach ($accounts as $account) {
+        // For an account run each chosen account is checked on its own, so this course-run check
+        // is skipped.
+        $accountScope = $settings['scope'] === 'account';
+        $accountTool = $accounts !== [] && !$accountScope;
+        foreach ($accountScope ? [] : $accounts as $account) {
             $tools = $client->getAll('/api/v1/accounts/' . (int)$account['id'] . '/external_tools', ['include_parents' => 'true']);
             $match = CanvasLtiDeployer::findMatchingTool($tools, $effective['launch_url']);
             if ($match === null) {
@@ -630,7 +760,7 @@ final class CanvasDeployRun
         try {
             $runKey = Encryption::generateKey();
             $accountIds = array_map(static fn(array $account): int => (int)$account['id'], $accounts);
-            $isCourseScope = $settings['scope'] === 'course';
+            $isCourseScope = $settings['scope'] === 'course' || $accountScope;
             $now = $this->nowInt();
             $this->store['run'] = [
                 'id' => $runId,
@@ -646,7 +776,7 @@ final class CanvasDeployRun
                 'account_nav_fixed' => $accountNavFixed,
                 'accounts' => $accountIds,
                 'account_index' => 0,
-                'phase' => $isCourseScope ? 'ids' : 'main',
+                'phase' => $accountScope ? 'accounts' : ($isCourseScope ? 'ids' : 'main'),
                 'cursor' => $isCourseScope ? null : $client->url(
                     '/api/v1/accounts/' . $accountIds[0] . '/courses',
                     $this->courseListQuery($settings, false)
@@ -796,11 +926,16 @@ final class CanvasDeployRun
             if ($item['kind'] === 'result') {
                 $row = $item['result'];
             } else {
-                $courseId = (int)$item['course']['id'];
+                $target = $item['kind'] === 'account' ? $item['account'] : $item['course'];
+                $courseId = (int)$target['id'];
+                $removing = ($run['settings']['operation'] ?? 'deploy') === 'remove';
                 try {
-                    $row = ($run['settings']['operation'] ?? 'deploy') === 'remove'
-                        ? $deployer->removeCourse($item['course'])
-                        : $deployer->deployCourse($item['course']);
+                    $row = match (true) {
+                        $item['kind'] === 'account' && $removing => $deployer->removeAccount($target),
+                        $item['kind'] === 'account' => $deployer->deployAccount($target),
+                        $removing => $deployer->removeCourse($target),
+                        default => $deployer->deployCourse($target),
+                    };
                     unset($run['attempts'][$courseId]);
                     $took = max(0.0, $this->now() - $itemStarted - $slept);
                     $average = $average === null ? $took : 0.7 * $average + 0.3 * $took;
@@ -820,9 +955,9 @@ final class CanvasDeployRun
                     $why['then'] = 'Marked failed after ' . $hits . ' attempts';
                     unset($run['attempts'][$courseId]);
                     $row = CanvasLtiDeployer::failedRow(
-                        $item['course'],
-                        'Timed out: Canvas did not finish this course within the batch deadline three times.'
-                    );
+                        $target,
+                        'Timed out: Canvas did not finish this ' . ($item['kind'] === 'account' ? 'account' : 'course') . ' within the batch deadline three times.'
+                    ) + ($item['kind'] === 'account' ? ['kind' => 'account', 'module' => ''] : []);
                     $this->record($run, $row, $results, $processed);
                     break;
                 }
@@ -867,7 +1002,7 @@ final class CanvasDeployRun
     private static function remaining(array $run): ?int
     {
         return match ($run['phase']) {
-            'ids' => count($run['ids']) + count($run['queue']),
+            'ids', 'accounts' => count($run['ids']) + count($run['queue']),
             'done' => count($run['queue']),
             default => null,
         };
@@ -897,7 +1032,7 @@ final class CanvasDeployRun
         match ($row['tool']) {
             'created' => $counts['tool_created']++,
             'would_create' => $counts['tool_would_create']++,
-            'present', 'present_account', 'created_for_nav', 'would_create_for_nav' => $counts['tool_present']++,
+            'present', 'present_account', 'present_parent', 'created_for_nav', 'would_create_for_nav' => $counts['tool_present']++,
             'removed' => $counts['tool_removed']++,
             'updated' => $counts['tool_updated']++,
             'would_update' => $counts['tool_would_update']++,
@@ -958,6 +1093,31 @@ final class CanvasDeployRun
         while (true) {
             if ($run['queue'] !== []) {
                 return array_shift($run['queue']);
+            }
+
+            if ($run['phase'] === 'accounts') {
+                if ($run['ids'] === []) {
+                    $run['phase'] = 'done';
+                    return null;
+                }
+                $accountId = (int)$run['ids'][0];
+                try {
+                    $account = $client->get("/api/v1/accounts/{$accountId}");
+                } catch (CanvasDeadlineExceeded $exception) {
+                    throw $exception;
+                } catch (CanvasApiException $exception) {
+                    array_shift($run['ids']);
+                    return ['kind' => 'result', 'result' => CanvasLtiDeployer::failedRow(
+                        ['id' => $accountId, 'name' => 'Account ' . $accountId],
+                        'Account lookup failed: ' . $exception->getMessage()
+                    ) + ['kind' => 'account', 'module' => '']];
+                }
+                array_shift($run['ids']);
+                return ['kind' => 'account', 'account' => [
+                    'id' => $accountId,
+                    'name' => is_array($account) ? (string)($account['name'] ?? ('Account ' . $accountId)) : 'Account ' . $accountId,
+                    'parent_account_id' => is_array($account) ? ($account['parent_account_id'] ?? null) : null,
+                ]];
             }
 
             if ($run['phase'] === 'ids') {
@@ -1127,11 +1287,15 @@ final class CanvasDeployRun
         return new CanvasClient($baseUrl, $token, null, $deadline, $this->clock, $this->sleeper);
     }
 
-    /** Top accounts the token administers; empty for a token that is not an account admin. */
-    private function adminAccounts(CanvasClient $client): array
+    /**
+     * The accounts the token administers (only the top ones unless $topOnly is false); empty for
+     * a token that is not an account admin.
+     */
+    private function adminAccounts(CanvasClient $client, bool $topOnly = true): array
     {
         try {
-            return self::topAccounts($client->getAll('/api/v1/accounts'));
+            $accounts = array_values(array_filter($client->getAll('/api/v1/accounts'), static fn($account): bool => is_array($account) && isset($account['id'])));
+            return $topOnly ? self::topAccounts($accounts) : $accounts;
         } catch (CanvasDeadlineExceeded $exception) {
             throw $exception;
         } catch (CanvasApiException $exception) {

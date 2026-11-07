@@ -223,6 +223,35 @@ final class CanvasLtiDeployer
         ];
     }
 
+    /**
+     * What an account has, without changing anything: app is here (installed on this account),
+     * inherited (from a parent account), doubtful or no; nav is yes or no for the tool found.
+     */
+    public static function inspectAccount(CanvasClient $client, int $accountId, string $launchUrl): array
+    {
+        $own = $client->getAll("/api/v1/accounts/{$accountId}/external_tools");
+        $match = self::findMatchingTool($own, $launchUrl);
+        $app = 'here';
+        if ($match === null) {
+            $match = self::findMatchingTool($client->getAll("/api/v1/accounts/{$accountId}/external_tools", ['include_parents' => 'true']), $launchUrl);
+            $app = $match === null ? 'no' : 'inherited';
+        }
+        if ($match !== null && self::doubtfulMatch($match) !== null) {
+            $app = 'doubtful';
+        }
+        return [
+            'app' => $app,
+            'nav' => $match !== null && $app !== 'doubtful' && !self::lacksNav($match) ? 'yes' : 'no',
+            'tool' => $match === null ? '' : self::describeTool($match),
+        ];
+    }
+
+    /** A result row for an account: the module column does not apply. */
+    public static function accountRow(array $account): array
+    {
+        return ['kind' => 'account', 'module' => ''] + self::resultRow($account);
+    }
+
     /** Warnings about an existing copy of the tool that is left alone. */
     public static function toolWarnings(array $tool, string $consumerKey, string $privacy = 'public'): array
     {
@@ -433,6 +462,170 @@ final class CanvasLtiDeployer
 
         $row['status'] = $row['notes'] === [] ? 'ok' : 'warning';
         return $row;
+    }
+
+    /**
+     * Install, or check and update, the tool on one account, where every course and sub-account
+     * below it inherits it. A tool the account inherits from a parent is reported, not installed
+     * again. Canvas decides whether the token may change apps on the account.
+     *
+     * @throws CanvasDeadlineExceeded as deployCourse() does
+     */
+    public function deployAccount(array $account): array
+    {
+        $row = self::accountRow($account);
+        try {
+            $nav = 'skipped';
+            $row['tool'] = $this->ensureAccountTool($row['course_id'], $row['notes'], $nav);
+            $row['nav'] = $nav;
+        } catch (CanvasDeadlineExceeded $exception) {
+            throw $exception;
+        } catch (CanvasApiException $exception) {
+            $row['tool'] = 'failed';
+            $row['nav'] = 'skipped';
+            $row['status'] = 'failed';
+            $row['notes'][] = self::accountRefusal($exception);
+            return $row;
+        }
+        $row['status'] = in_array($row['tool'], ['needs_credentials', 'doubtful', 'present_parent'], true)
+            ? 'skipped'
+            : ($row['notes'] === [] ? 'ok' : 'warning');
+        return $row;
+    }
+
+    /**
+     * Remove the tool installed on this account. One inherited from a parent account is
+     * reported, since it can only be removed there.
+     *
+     * @throws CanvasDeadlineExceeded as deployCourse() does
+     */
+    public function removeAccount(array $account): array
+    {
+        $row = self::accountRow($account);
+        $accountId = $row['course_id'];
+        $launchUrl = (string)$this->settings['launch_url'];
+        $row['nav'] = 'skipped';
+        try {
+            $match = self::findMatchingTool($this->client->getAll("/api/v1/accounts/{$accountId}/external_tools"), $launchUrl);
+            if ($match !== null && ($doubt = self::doubtfulMatch($match)) !== null) {
+                $row['tool'] = 'doubtful';
+                $row['notes'][] = $doubt;
+            } elseif ($match !== null) {
+                if (empty($this->settings['dry_run'])) {
+                    $this->client->delete("/api/v1/accounts/{$accountId}/external_tools/" . (int)$match['id']);
+                }
+                $row['tool'] = empty($this->settings['dry_run']) ? 'removed' : 'would_remove';
+                $row['notes'][] = 'Courses and sub-accounts below this account no longer get the tool from it.';
+            } else {
+                $inherited = self::findMatchingTool($this->client->getAll("/api/v1/accounts/{$accountId}/external_tools", ['include_parents' => 'true']), $launchUrl);
+                if ($inherited !== null) {
+                    $row['tool'] = 'present_parent';
+                    $row['notes'][] = 'The tool comes from a parent account ' . self::describeTool($inherited) . ', so it can only be removed there.';
+                } else {
+                    $row['tool'] = 'absent';
+                }
+            }
+        } catch (CanvasDeadlineExceeded $exception) {
+            throw $exception;
+        } catch (CanvasApiException $exception) {
+            $row['tool'] = 'failed';
+            $row['status'] = 'failed';
+            $row['notes'][] = self::accountRefusal($exception);
+            return $row;
+        }
+        $row['status'] = in_array($row['tool'], ['doubtful', 'present_parent'], true) ? 'skipped' : 'ok';
+        return $row;
+    }
+
+    /** A Canvas error on an account, worded for the usual cause: the role can't manage apps there. */
+    private static function accountRefusal(CanvasApiException $exception): string
+    {
+        return in_array($exception->status(), [401, 403], true)
+            ? 'Canvas refused this account: your role there may not be allowed to manage apps (LTI tools). ' . $exception->getMessage()
+            : 'Account step failed: ' . $exception->getMessage();
+    }
+
+    private function ensureAccountTool(int $accountId, array &$notes, string &$nav): string
+    {
+        $nav = 'skipped';
+        $base = "/api/v1/accounts/{$accountId}/external_tools";
+        $launchUrl = (string)$this->settings['launch_url'];
+        $linkName = (string)$this->settings['link_name'];
+        $dryRun = !empty($this->settings['dry_run']);
+        $withNav = !empty($this->settings['create_nav']);
+        $own = $this->client->getAll($base);
+        $all = $this->client->getAll($base, ['include_parents' => 'true']);
+        foreach (self::findForeignTools($all, $launchUrl, $linkName, (string)$this->settings['consumer_key']) as $foreign) {
+            $target = (string)($foreign['url'] ?? '') !== '' ? (string)$foreign['url'] : (string)($foreign['domain'] ?? 'another address');
+            $notes[] = 'Another copy of the tool "' . (string)($foreign['name'] ?? '') . '" points to ' . $target
+                . '; courses below may show two tabs.';
+        }
+
+        $match = self::findMatchingTool($own, $launchUrl);
+        if ($match === null) {
+            $inherited = self::findMatchingTool($all, $launchUrl);
+            if ($inherited !== null && ($doubt = self::doubtfulMatch($inherited)) !== null) {
+                $notes[] = $doubt;
+                return 'doubtful';
+            }
+            if ($inherited !== null) {
+                $nav = self::lacksNav($inherited) ? 'off' : 'present';
+                $notes[] = 'This account already gets the tool from a parent account ' . self::describeTool($inherited)
+                    . ', so it was not installed again here. Change it on that account.';
+                return 'present_parent';
+            }
+            if ((string)($this->settings['consumer_key'] ?? '') === '' || (string)($this->settings['consumer_secret'] ?? '') === '') {
+                $notes[] = 'The tool is not on this account. Enter the LTI consumer key and shared secret to install it here.';
+                return 'needs_credentials';
+            }
+            if ($dryRun) {
+                $nav = $withNav ? 'would_add' : 'off';
+                return 'would_create';
+            }
+            $this->client->post($base, self::toolPayload(['create_nav' => $withNav] + $this->settings));
+            $nav = $withNav ? 'added' : 'off';
+            return 'created';
+        }
+        if (($doubt = self::doubtfulMatch($match)) !== null) {
+            $notes[] = $doubt;
+            return 'doubtful';
+        }
+
+        $toolPath = $base . '/' . (int)$match['id'];
+        if (self::lacksNav($match)) {
+            if ($withNav) {
+                if (!$dryRun) {
+                    $this->client->put($toolPath, ['course_navigation' => self::navPlacement($linkName, ...self::navFieldsFrom($this->settings))]);
+                }
+                $nav = $dryRun ? 'would_add' : 'added';
+            } else {
+                $nav = 'off';
+            }
+        } else {
+            $nav = 'present';
+            if ($withNav && !empty($this->settings['update_nav'])) {
+                [$visibility, $default] = self::navFieldsFrom($this->settings);
+                if (self::navDiffers($match, $linkName, $visibility, $default)) {
+                    if (!$dryRun) {
+                        $this->client->put($toolPath, ['course_navigation' => self::navPlacement($linkName, $visibility, $default)]);
+                    }
+                    $nav = $dryRun ? 'would_update' : 'updated';
+                }
+            }
+        }
+        $privacy = self::privacyLevel($this->settings['privacy_level'] ?? 'public');
+        if (!empty($this->settings['update_existing'])) {
+            if (!$dryRun) {
+                $this->client->put($toolPath, [
+                    'consumer_key' => (string)$this->settings['consumer_key'],
+                    'shared_secret' => (string)$this->settings['consumer_secret'],
+                    'privacy_level' => $privacy,
+                ]);
+            }
+            return $dryRun ? 'would_update' : 'updated';
+        }
+        array_push($notes, ...self::toolWarnings($match, (string)$this->settings['consumer_key'], $privacy));
+        return 'present';
     }
 
     private function removeModuleItems(int $courseId, string $launchUrl, bool $dryRun): string

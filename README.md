@@ -2,10 +2,22 @@
 
 ## Deploy to Canvas
 
-A web page that installs (or removes) an LTI 1.1 tool in Canvas courses.
+A web page that installs (or removes) an LTI 1.1 tool in Canvas courses or accounts.
 There is no login: the person pastes their Canvas API token, the page lists the courses
 that token can deploy to (teacher, TA or designer enrollments), and they tick which ones.
-A Canvas account-admin token also gets the term / all active / all courses options.
+A Canvas account-admin token also gets the account / term / all active / all courses options.
+
+- **An account:** lists every account and sub-account the token administers, as a tree,
+  with whether each already has the tool, inherits it from a parent account, or neither.
+  Installing on an account makes the tool available in every course and sub-account below
+  it (a root account means every course in it); the page says so before anything runs.
+  An account that already has the tool, or inherits it, does not get a second copy.
+  Existing account tools follow the same update choices as course tools (nav link, key,
+  secret and privacy). Remove deletes the tool installed on the account; one inherited from
+  a parent is reported. Canvas decides whether the token's role may change apps on each
+  account: a refusal is reported for that account and the run goes on. A dry run can't test
+  that permission, so it reports what it would try. Module links are course-level and are
+  skipped for accounts.
 
 - Dry run first: it reports what would change and writes nothing.
 - Courses that already have the tool are left alone, unless "update tools that are already

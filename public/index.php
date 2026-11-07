@@ -175,17 +175,19 @@ $cdWorkerFresh = $queue->workerFresh();
             <div id="cdAfterConnect" class="d-none">
             <div class="card card-primary card-outline mb-4" id="cdCoursesCard">
                 <div class="card-header">
-                    <h2 class="card-title d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-primary">3</span> Choose courses</h2>
+                    <h2 class="card-title d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-primary">3</span> Choose where to install</h2>
                 </div>
                 <div class="card-body">
                     <fieldset class="border-0 p-0 m-0" aria-describedby="cdScopeError">
-                        <legend class="form-label fs-6">Which courses?</legend>
+                        <legend class="form-label fs-6">Courses or accounts?</legend>
                         <div class="btn-group flex-wrap mb-3" role="group" aria-label="Where the courses come from">
                             <input class="btn-check" type="radio" name="scope" id="cdScopePicked" value="picked" checked>
                             <label class="btn btn-outline-primary" for="cdScopePicked"><i class="bi bi-list-check me-1" aria-hidden="true"></i>My courses <span class="badge text-bg-light" id="cdPickedTotal"></span></label>
                             <input class="btn-check" type="radio" name="scope" id="cdScopeCourse" value="course">
                             <label class="btn btn-outline-primary" for="cdScopeCourse"><i class="bi bi-hash me-1" aria-hidden="true"></i>By Canvas ID</label>
                             <span class="btn-group d-none" id="cdAdminScopes" role="group" aria-label="Canvas account admin options">
+                                <input class="btn-check" type="radio" name="scope" id="cdScopeAccount" value="account">
+                                <label class="btn btn-outline-secondary" for="cdScopeAccount"><i class="bi bi-diagram-3 me-1" aria-hidden="true"></i>An account</label>
                                 <input class="btn-check" type="radio" name="scope" id="cdScopeTerm" value="term">
                                 <label class="btn btn-outline-secondary" for="cdScopeTerm"><i class="bi bi-calendar3 me-1" aria-hidden="true"></i>A term</label>
                                 <input class="btn-check" type="radio" name="scope" id="cdScopeActive" value="active">
@@ -194,7 +196,7 @@ $cdWorkerFresh = $queue->workerFresh();
                                 <label class="btn btn-outline-secondary" for="cdScopeAll">All, incl. concluded</label>
                             </span>
                         </div>
-                        <p class="form-text d-none" id="cdAdminNote">Term and all-course options appear because this token is an admin for <span id="cdAdminAccounts">an account</span>.</p>
+                        <p class="form-text d-none" id="cdAdminNote">Account, term and all-course options appear because this token is an admin for <span id="cdAdminAccounts">an account</span>.</p>
                         <div class="mb-3" id="cdPickedWrap">
                             <div class="row g-2 align-items-end mb-2">
                                 <div class="col-md-5">
@@ -260,6 +262,28 @@ $cdWorkerFresh = $queue->workerFresh();
                                 </div>
                                 <div id="cdTermError" class="invalid-feedback"></div>
                             </div>
+                        <div class="mb-3 d-none" id="cdAccountWrap">
+                            <p class="form-text mt-0">Installing on an account makes the tool available in every course and sub-account below it, so a root account means every course in it. Pick a sub-account to limit it to that branch. Whether courses show the nav link still depends on the nav setting in step 4 and each course's Settings &gt; Navigation. Module links are course-level, so account runs skip them. Canvas decides whether your role may change apps on each account.</p>
+                            <div class="table-responsive border rounded" style="max-height: 22rem; overflow: auto;">
+                                <table class="table table-sm table-hover align-middle mb-0">
+                                    <caption class="visually-hidden">Canvas accounts you administer</caption>
+                                    <thead>
+                                        <tr>
+                                            <th scope="col" style="width: 2.5rem"><span class="visually-hidden">Selected</span></th>
+                                            <th scope="col" class="text-center" title="The tool on this account, or inherited from a parent account">Tool</th>
+                                            <th scope="col" class="text-center" title="The tool's Course Navigation link">Nav</th>
+                                            <th scope="col">Account</th>
+                                            <th scope="col">ID</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="cdAccountBody"></tbody>
+                                </table>
+                            </div>
+                            <input type="hidden" id="cdAccountPick">
+                            <div id="cdAccountStatus" class="form-text" role="status" aria-live="polite"></div>
+                            <div id="cdAccountError" class="invalid-feedback"></div>
+                            <div id="cdAccountNote" class="alert alert-warning py-2 mt-2 mb-0 d-none" role="status"></div>
+                        </div>
                         <p class="form-text mb-0 d-none" id="cdScopeAllNote">Checks every course in the account. Courses that already have the tool are skipped.</p>
                         <div id="cdScopeError" class="invalid-feedback"></div>
                     </fieldset>
@@ -407,18 +431,18 @@ $cdWorkerFresh = $queue->workerFresh();
                 <div class="d-flex flex-wrap gap-3 align-items-center mb-2">
                     <div class="form-check mb-0">
                         <input class="form-check-input" type="checkbox" id="cdOnlyIssues">
-                        <label class="form-check-label" for="cdOnlyIssues">Show only warnings, failures, and skipped courses</label>
+                        <label class="form-check-label" for="cdOnlyIssues">Show only warnings, failures, and skipped rows</label>
                     </div>
                     <button type="button" class="btn btn-outline-secondary btn-sm" id="cdDownloadCsv">Download CSV</button>
                 </div>
                 <p id="cdResultsNote" class="form-text"></p>
                 <div class="table-responsive">
                     <table class="table table-sm table-striped align-middle">
-                        <caption>Per-course results</caption>
+                        <caption>Results per course or account</caption>
                         <thead>
                             <tr>
-                                <th scope="col">Course ID</th>
-                                <th scope="col">Course</th>
+                                <th scope="col">ID</th>
+                                <th scope="col">Course or account</th>
                                 <th scope="col">SIS ID</th>
                                 <th scope="col">Term</th>
                                 <th scope="col">Tool</th>
@@ -546,6 +570,8 @@ $cdWorkerFresh = $queue->workerFresh();
         pickedTotal: byId('cdPickedTotal'), pickedEmpty: byId('cdPickedEmpty'), adminScopes: byId('cdAdminScopes'),
         flagsStatus: byId('cdFlagsStatus'), fixAccountNav: byId('cdFixAccountNav'), fixAccountNavWrap: byId('cdFixAccountNavWrap'),
         adminAccounts: byId('cdAdminAccounts'), scopePicked: byId('cdScopePicked'),
+        accountWrap: byId('cdAccountWrap'), accountBody: byId('cdAccountBody'), accountStatus: byId('cdAccountStatus'),
+        accountNote: byId('cdAccountNote'), scopeAccount: byId('cdScopeAccount'),
         navOptions: byId('cdNavOptions'), navVisibility: byId('cdNavVisibility'), updateNav: byId('cdUpdateNav'),
         privacy: byId('cdPrivacy'), modulePublished: byId('cdModulePublished'),
     };
@@ -555,11 +581,11 @@ $cdWorkerFresh = $queue->workerFresh();
         module_name: ['cdModuleName', 'cdModuleNameError'], course_delay_ms: ['cdDelay', 'cdDelayError'], scope: ['cdScopeCourse', 'cdScopeError'],
     };
     const labels = {
-        tool: { updated: 'Updated', would_update: 'Would update', removed: 'Removed', would_remove: 'Would remove', absent: 'Not installed', created: 'Created', would_create: 'Would create', present: 'Already present', present_account: 'Present (account level)', needs_credentials: 'Needs key and secret', doubtful: 'Other tool matched, nothing added', created_for_nav: 'Created (for nav link)', would_create_for_nav: 'Would create (for nav link)', skipped: 'Skipped', failed: 'Failed' },
+        tool: { updated: 'Updated', would_update: 'Would update', removed: 'Removed', would_remove: 'Would remove', absent: 'Not installed', created: 'Created', would_create: 'Would create', present: 'Already present', present_account: 'Present (account level)', present_parent: 'Inherited from a parent account', needs_credentials: 'Needs key and secret', doubtful: 'Other tool matched, nothing added', created_for_nav: 'Created (for nav link)', would_create_for_nav: 'Would create (for nav link)', skipped: 'Skipped', failed: 'Failed' },
         nav: { present: 'Already present', added: 'Added', would_add: 'Would add', updated: 'Updated', would_update: 'Would update', not_added: 'Not added (see notes)', off: 'Not requested', skipped: 'Skipped' },
         module: { removed: 'Link removed', would_remove: 'Would remove link', none: 'None found', created: 'Module created', added: 'Link added', would_create: 'Would create module', would_add: 'Would add link', present: 'Already present', off: 'Not requested', skipped: 'Skipped', failed: 'Failed' },
         status: { ok: 'OK', warning: 'Warning', failed: 'Failed', skipped: 'Skipped' },
-        scope: { picked: 'Courses I choose', course: 'Course by Canvas ID', term: 'Term', active: 'All active courses', all: 'All courses, including concluded' },
+        scope: { account: 'Accounts', picked: 'Courses I choose', course: 'Course by Canvas ID', term: 'Term', active: 'All active courses', all: 'All courses, including concluded' },
     };
     const MAX_TABLE_ROWS = 2000;
     config.defaults.operation = 'deploy';
@@ -578,6 +604,9 @@ $cdWorkerFresh = $queue->workerFresh();
     let maxSelectable = 500;
     let connectedAdmin = false;
     const selected = new Set();
+    let accounts = [];
+    let maxAccounts = 50;
+    const selectedAccounts = new Set();
 
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const selectedScope = () => (form.querySelector('input[name="scope"]:checked') || {}).value || '';
@@ -660,7 +689,8 @@ $cdWorkerFresh = $queue->workerFresh();
         Object.entries(fields || {}).forEach(([field, message]) => {
             let target = fieldInputs[field];
             if (field === 'scope_value') {
-                if (selectedScope() === 'picked') target = ['cdCourseFilter', 'cdPickedError'];
+                if (selectedScope() === 'account') target = ['cdAccountPick', 'cdAccountError'];
+                else if (selectedScope() === 'picked') target = ['cdCourseFilter', 'cdPickedError'];
                 else target = selectedScope() === 'course' ? ['cdCourseIds', 'cdCourseIdsError'] : [termListShown() ? 'cdTermSelect' : 'cdTermId', 'cdTermError'];
             }
             if (!target) return;
@@ -679,6 +709,8 @@ $cdWorkerFresh = $queue->workerFresh();
         const scope = selectedScope();
         let scopeValue = '';
         if (scope === 'picked') scopeValue = Array.from(selected).join(',');
+        // Tree order, parents first: a sub-account under a chosen parent then inherits from it.
+        if (scope === 'account') scopeValue = accounts.filter((account) => selectedAccounts.has(account.id)).map((account) => account.id).join(',');
         if (scope === 'course') scopeValue = els.courseIds.value.trim();
         if (scope === 'term') scopeValue = termListShown() ? els.termSelect.value : els.termId.value.trim();
         return {
@@ -715,6 +747,7 @@ $cdWorkerFresh = $queue->workerFresh();
                 return term ? term.name + ' (' + term.id + ')' : (value ? 'Term ' + value : 'Not chosen');
             }
             if (scope === 'picked') return selected.size ? selected.size + ' selected' : 'None selected';
+            if (scope === 'account') return selectedAccounts.size ? selectedAccountNames(5) : 'None selected';
             if (scope === 'course') return value || 'None entered';
             return 'Not needed';
         }
@@ -733,7 +766,7 @@ $cdWorkerFresh = $queue->workerFresh();
         const current = currentSettings();
         const rows = [
             ['Canvas URL', 'base_url'], ['Action', 'operation'], ['Update existing tools', 'update_existing'], ['Add nav to account tool', 'fix_account_nav'], ['Link name', 'link_name'], ['Privacy', 'privacy_level'], ['Add navigation', 'create_nav'], ['Who sees the nav link', 'nav_visibility'], ['Update existing nav links', 'update_nav'], ['Add module', 'create_module'], ['Module name', 'module_name'], ['Module is', 'module_published'],
-            ['Delay between courses', 'course_delay_ms'], ['Courses', 'scope'], ['Course IDs or term', 'scope_value'],
+            ['Delay between courses', 'course_delay_ms'], ['Install in', 'scope'], ['Chosen', 'scope_value'],
         ];
         let changed = 0;
         els.summary.replaceChildren();
@@ -777,6 +810,12 @@ $cdWorkerFresh = $queue->workerFresh();
         byId('cdScopeAllNote').classList.toggle('d-none', scope !== 'active' && scope !== 'all');
         els.courseIdsWrap.classList.toggle('d-none', scope !== 'course');
         els.termWrap.classList.toggle('d-none', scope !== 'term');
+        els.accountWrap.classList.toggle('d-none', scope !== 'account');
+        // On accounts the nav link is set directly, so the course-run account nav fix is hidden.
+        const showFixNav = connectedAdmin && operation() === 'deploy' && scope !== 'account';
+        els.fixAccountNavWrap.classList.toggle('d-none', !showFixNav);
+        if (!showFixNav) els.fixAccountNav.checked = false;
+        updateAccountNote();
         els.moduleName.disabled = !els.createModule.checked || !!(run && run.active);
         els.modulePublished.disabled = els.moduleName.disabled;
         renderSummary();
@@ -988,8 +1027,174 @@ $cdWorkerFresh = $queue->workerFresh();
             els.flagsStatus.textContent = 'App, Nav and Module: ✓ already there, ✗ missing, ? another tool on the same domain matched, ! could not check (hover for why).';
         }
     }
-    els.ltiUrl.addEventListener('change', () => { if (courses.length) loadFlags(); });
-    els.ltiOwn.addEventListener('change', () => { if (courses.length) loadFlags(); });
+    els.ltiUrl.addEventListener('change', () => { if (courses.length) loadFlags(); if (accounts.length) loadAccountFlags(); });
+    els.ltiOwn.addEventListener('change', () => { if (courses.length) loadFlags(); if (accounts.length) loadAccountFlags(); });
+
+    // Accounts the token administers, as a tree, for installing on an account.
+    const accountFlags = new Map();
+    let accountGeneration = 0;
+    const ACCOUNT_FLAG_TEXT = {
+        here: ['✓', 'text-success', 'Installed on this account'],
+        inherited: ['↑', 'text-primary', 'Inherited from a parent account'],
+        yes: ['✓', 'text-success', 'Yes'],
+        no: ['✗', 'text-danger', 'No'],
+        doubtful: ['?', 'text-warning', 'A tool on the same domain matched; it may be a different tool'],
+        error: ['!', 'text-warning', 'Could not check'],
+    };
+    const accountById = (id) => accounts.find((account) => account.id === id);
+    const accountLabel = (account) => account.name || ('Account ' + account.id);
+    function ancestorsOf(account) {
+        const chain = [];
+        let parent = account && account.parent_id ? accountById(account.parent_id) : null;
+        while (parent) {
+            chain.push(parent);
+            parent = parent.parent_id ? accountById(parent.parent_id) : null;
+        }
+        return chain;
+    }
+    function selectedAccountNames(limit) {
+        const names = accounts.filter((account) => selectedAccounts.has(account.id)).map(accountLabel);
+        return names.slice(0, limit).join('; ') + (names.length > limit ? '; and ' + (names.length - limit) + ' more' : '');
+    }
+
+    function accountFlagCell(flags, key) {
+        const td = document.createElement('td');
+        td.className = 'text-center';
+        if (!flags) {
+            td.textContent = '…';
+            td.classList.add('text-body-secondary');
+            td.title = 'Not checked yet';
+            return td;
+        }
+        const [symbol, css, text] = ACCOUNT_FLAG_TEXT[flags[key]] || ['', '', ''];
+        td.textContent = symbol;
+        if (css) td.classList.add(css, 'fw-bold');
+        td.title = text + (key === 'app' && flags.tool ? ': ' + flags.tool : '');
+        return td;
+    }
+
+    function renderAccounts() {
+        els.accountBody.replaceChildren(...accounts.map((account) => {
+            const tr = document.createElement('tr');
+            const pick = document.createElement('td');
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.className = 'form-check-input';
+            box.id = 'cdAccount' + account.id;
+            box.checked = selectedAccounts.has(account.id);
+            box.dataset.accountId = String(account.id);
+            pick.appendChild(box);
+            const name = document.createElement('td');
+            const label = document.createElement('label');
+            label.htmlFor = box.id;
+            label.style.paddingLeft = (account.depth * 1.25) + 'rem';
+            label.textContent = (account.depth > 0 ? '└ ' : '') + accountLabel(account);
+            name.appendChild(label);
+            const badge = document.createElement('span');
+            badge.className = 'badge ms-2 ' + (account.root ? 'text-bg-warning' : 'text-bg-light');
+            badge.textContent = account.root ? 'Root: every course' : account.below + ' sub-account' + (account.below === 1 ? '' : 's') + ' below';
+            if (account.root || account.below > 0) name.appendChild(badge);
+            const id = document.createElement('td');
+            id.textContent = String(account.id);
+            tr.append(pick, accountFlagCell(accountFlags.get(account.id), 'app'), accountFlagCell(accountFlags.get(account.id), 'nav'), name, id);
+            return tr;
+        }));
+    }
+
+    // What the chosen accounts reach, said before anything runs.
+    function updateAccountNote() {
+        const chosen = accounts.filter((account) => selectedAccounts.has(account.id));
+        if (selectedScope() !== 'account' || !chosen.length) {
+            els.accountNote.classList.add('d-none');
+            return;
+        }
+        const removing = operation() === 'remove';
+        const lines = chosen.map((account) => {
+            const reach = account.root
+                ? 'every course and sub-account in it'
+                : 'its courses' + (account.below ? ' and the ' + account.below + ' sub-account' + (account.below === 1 ? '' : 's') + ' below it' : '');
+            return '"' + accountLabel(account) + '": ' + (removing ? 'removing it takes the tool away from ' : 'the tool becomes available in ') + reach
+                + (removing ? ', unless they have their own copy.' : '.');
+        });
+        chosen.forEach((account) => {
+            const parent = ancestorsOf(account).find((ancestor) => selectedAccounts.has(ancestor.id));
+            if (parent && !removing) {
+                lines.push('"' + accountLabel(account) + '" is inside "' + accountLabel(parent) + '", which is also chosen, so it will inherit the tool from there rather than get a second copy.');
+            }
+        });
+        els.accountNote.replaceChildren(...lines.map((line) => { const p = document.createElement('p'); p.className = 'mb-1'; p.textContent = line; return p; }));
+        els.accountNote.classList.remove('d-none');
+    }
+
+    els.accountBody.addEventListener('change', (event) => {
+        const box = event.target;
+        if (!(box instanceof HTMLInputElement) || !box.dataset.accountId) return;
+        const id = Number(box.dataset.accountId);
+        if (box.checked && selectedAccounts.size >= maxAccounts) {
+            box.checked = false;
+            showAlert(els.connection, 'warning', 'You can choose at most ' + maxAccounts + ' accounts in one run.');
+            return;
+        }
+        if (box.checked) selectedAccounts.add(id); else selectedAccounts.delete(id);
+        updateAccountNote();
+        renderSummary();
+    });
+
+    async function loadAccounts() {
+        accounts = [];
+        selectedAccounts.clear();
+        accountFlags.clear();
+        renderAccounts();
+        els.accountStatus.textContent = 'Listing your accounts…';
+        try {
+            const result = await post('accounts', { base_url: els.baseUrl.value.trim(), canvas_token: els.token.value });
+            accounts = result.accounts || [];
+            maxAccounts = result.max_selectable || maxAccounts;
+            renderAccounts();
+            els.accountStatus.textContent = result.partial ? 'Some sub-accounts could not be listed.' : '';
+            loadAccountFlags();
+        } catch (error) {
+            els.accountStatus.textContent = 'Could not list accounts: ' + (error.message || 'unknown error');
+        }
+    }
+
+    async function loadAccountFlags() {
+        const generation = ++accountGeneration;
+        accountFlags.clear();
+        renderAccounts();
+        const launch = els.ltiOwn.checked ? els.ltiUrl.value.trim() : '';
+        const queue = accounts.map((account) => account.id);
+        const attempts = new Map();
+        while (queue.length && generation === accountGeneration) {
+            const batch = queue.splice(0, 5);
+            els.accountStatus.textContent = 'Checking the tool on each account: ' + accountFlags.size + ' of ' + accounts.length + '…';
+            let result;
+            try {
+                result = await post('account_flags', { base_url: els.baseUrl.value.trim(), canvas_token: els.token.value, lti_launch_url: launch, account_ids: batch.join(',') });
+            } catch (error) {
+                if (generation !== accountGeneration) return;
+                batch.forEach((id) => accountFlags.set(id, { app: 'error', nav: 'error', tool: error.message || 'Could not check' }));
+                renderAccounts();
+                if (error.canvas_status === 401) break;
+                continue;
+            }
+            if (generation !== accountGeneration) return;
+            if (!result.launch_url_known) {
+                els.accountStatus.textContent = 'Enter the tool\'s LTI launch URL in step 1 to see which accounts already have it.';
+                return;
+            }
+            Object.entries(result.flags || {}).forEach(([id, flags]) => accountFlags.set(Number(id), flags));
+            (result.pending || []).forEach((id) => {
+                const tries = (attempts.get(id) || 0) + 1;
+                attempts.set(id, tries);
+                if (tries >= 3) accountFlags.set(id, { app: 'error', nav: 'error', tool: 'Canvas was too slow to check this account' }); else queue.push(id);
+            });
+            renderAccounts();
+        }
+        if (generation === accountGeneration) {
+            els.accountStatus.textContent = 'Tool and Nav: ✓ on this account, ↑ inherited from a parent account, ✗ not there, ? another tool on the same domain matched, ! could not check (hover for why).';
+        }
+    }
 
     function setCourses(list) {
         courses = list;
@@ -1050,7 +1255,8 @@ $cdWorkerFresh = $queue->workerFresh();
                 els.adminAccounts.textContent = names;
                 summary += ' Canvas account admin for: ' + names + '.';
                 await loadTerms();
-            } else if (['term', 'active', 'all'].includes(selectedScope())) {
+                loadAccounts();
+            } else if (['account', 'term', 'active', 'all'].includes(selectedScope())) {
                 els.scopePicked.checked = true;
             }
             // The token stays in the (now hidden) field for the rest of this page's life; Log out wipes it.
@@ -1095,6 +1301,11 @@ $cdWorkerFresh = $queue->workerFresh();
         els.token.value = '';
         selected.clear();
         courses = [];
+        accounts = [];
+        selectedAccounts.clear();
+        accountGeneration++;
+        renderAccounts();
+        els.accountStatus.textContent = '';
         connectedAdmin = false;
         els.courseFilter.value = '';
         els.afterConnect.classList.add('d-none');
@@ -1136,7 +1347,7 @@ $cdWorkerFresh = $queue->workerFresh();
     function renderCounts(counts, dryRun) {
         const removing = !!(run && run.operation === 'remove');
         const items = removing ? [
-            ['Courses processed', counts.processed],
+            ['Processed', counts.processed],
             [dryRun ? 'Tools to remove' : 'Tools removed', dryRun ? counts.tool_would_remove : counts.tool_removed],
             ['Tool not installed', counts.tool_absent],
             [dryRun ? 'Module links to remove' : 'Module links removed', dryRun ? counts.module_would_remove : counts.module_removed],
@@ -1145,7 +1356,7 @@ $cdWorkerFresh = $queue->workerFresh();
             ['Skipped (see notes)', counts.skipped],
             ['Concluded, not included', counts.out_of_scope],
         ] : [
-            ['Courses processed', counts.processed],
+            ['Processed', counts.processed],
             [dryRun ? 'Tools to create' : 'Tools created', dryRun ? counts.tool_would_create : counts.tool_created],
             ['Tool already present (course or account)', counts.tool_present],
             [dryRun ? 'Course copies to make for the nav link' : 'Course copies made for the nav link', (dryRun ? counts.tool_would_copy : counts.tool_copied) || 0],
@@ -1210,7 +1421,7 @@ $cdWorkerFresh = $queue->workerFresh();
 
     els.csv.addEventListener('click', () => {
         if (!run) return;
-        const header = ['course_id', 'course_name', 'sis_course_id', 'term', 'tool', 'nav', 'module', 'status', 'notes'];
+        const header = ['id', 'name', 'sis_course_id', 'term', 'tool', 'nav', 'module', 'status', 'notes'];
         const lines = [header.map(csvCell).join(',')];
         run.results.forEach((row) => {
             lines.push([row.course_id, row.name, row.sis_course_id, row.term, row.tool, row.nav || '', row.module, row.status, (row.notes || []).join(' | ')].map(csvCell).join(','));
@@ -1239,6 +1450,8 @@ $cdWorkerFresh = $queue->workerFresh();
         els.progressTitle.focus();
         loadJobs('session_jobs');
         loadQueueStatus();
+        // Accounts are few, so their Tool and Nav columns are checked again after a real run.
+        if (!run.dryRun && accounts.length) loadAccountFlags();
     }
 
     function workerText(view) {
@@ -1499,6 +1712,10 @@ $cdWorkerFresh = $queue->workerFresh();
             return n + ' course' + (n === 1 ? '' : 's');
         }
         if (settings.scope === 'term') return 'Term ' + settings.scope_value;
+        if (settings.scope === 'account') {
+            const n = String(settings.scope_value || '').split(',').filter(Boolean).length;
+            return n + ' account' + (n === 1 ? '' : 's');
+        }
         return labels.scope[settings.scope] || '';
     }
 
@@ -1788,6 +2005,11 @@ $cdWorkerFresh = $queue->workerFresh();
         clearFieldErrors();
         setFormError('');
         const settings = currentSettings();
+        if (settings.scope === 'account' && selectedAccounts.size === 0) {
+            markFieldErrors({ scope_value: 'Choose at least one account.' });
+            setFormError('Choose at least one account in step 3, then run again.');
+            return;
+        }
         if (settings.scope === 'picked' && selected.size === 0) {
             markFieldErrors({ scope_value: 'Choose at least one course.' });
             setFormError('Choose at least one course in step 3, then run again.');
@@ -1799,14 +2021,27 @@ $cdWorkerFresh = $queue->workerFresh();
             return;
         }
         if (!dryRun) {
-            const scopeText = describe('scope', settings.scope) + (['picked', 'course', 'term'].includes(settings.scope) ? ': ' + describe('scope_value', settings.scope_value, settings.scope) : '')
+            const scopeText = describe('scope', settings.scope) + (['picked', 'course', 'term', 'account'].includes(settings.scope) ? ': ' + describe('scope_value', settings.scope_value, settings.scope) : '')
                 + (settings.scope === 'picked' ? ' (' + selectedNames(10) + ')' : '');
             // An inline second click instead of window.confirm(), which some browsers block silently.
             if (!confirmingDeploy) {
                 confirmingDeploy = true;
                 els.deploy.textContent = settings.operation === 'remove' ? 'Confirm: remove now' : 'Confirm: deploy now';
                 els.deploy.classList.replace(settings.operation === 'remove' ? 'btn-outline-danger' : 'btn-primary', 'btn-danger');
-                els.confirmNote.textContent = settings.operation === 'remove'
+                const navWho = { admins: 'for teachers and admins', members: 'for everyone in the course', hidden: 'hidden until a teacher turns it on' }[settings.nav_visibility] || '';
+                const accountRun = settings.scope === 'account';
+                const reachesRoot = accountRun && accounts.some((account) => selectedAccounts.has(account.id) && account.root);
+                els.confirmNote.textContent = accountRun && settings.operation === 'remove'
+                    ? 'Remove the tool from ' + scopeText + '? This deletes the tool installed on each of those accounts, so courses and sub-accounts below them lose it unless they have their own copy. It cannot be undone from here. Click Confirm to start, or change anything to cancel.'
+                    : accountRun
+                    ? 'Install the tool on ' + scopeText + '? ' + (reachesRoot ? 'This includes a root account, so every course in it gets the tool. ' : 'Every course and sub-account below each one gets the tool. ')
+                        + 'It sends ' + optionText(els.privacy, settings.privacy_level).toLowerCase()
+                        + (settings.create_nav === '1' ? ', with the nav link ' + navWho : ', without a nav link') + '. '
+                        + 'Accounts that already have it, or inherit it from a parent account, are not given a second copy. '
+                        + (settings.update_existing === '1' ? 'Tools already on an account get these credentials and privacy. ' : '')
+                        + (settings.update_nav === '1' ? 'Nav links already on an account get this link name and visibility. ' : '')
+                        + 'Click Confirm to start, or change anything to cancel.'
+                    : settings.operation === 'remove'
                     ? 'Remove the tool from ' + scopeText + '? This deletes the course tool and its module link in every one of those courses, and cannot be undone from here. Click Confirm to start, or change anything to cancel.'
                     : 'Deploy the tool to ' + scopeText + '? This adds the tool' + (settings.create_nav === '1' ? ', nav link' : '') + (settings.create_module === '1' ? ' and module link' : '')
                         + ' wherever a course is missing them'
@@ -1873,7 +2108,8 @@ $cdWorkerFresh = $queue->workerFresh();
         els.updateWrap.classList.toggle('d-none', operation() === 'remove');
         if (operation() === 'remove') els.updateExisting.checked = false;
         syncNav();
-        const showFixNav = connectedAdmin && operation() === 'deploy';
+        updateAccountNote();
+        const showFixNav = connectedAdmin && operation() === 'deploy' && selectedScope() !== 'account';
         els.fixAccountNavWrap.classList.toggle('d-none', !showFixNav);
         if (!showFixNav) els.fixAccountNav.checked = false;
         if (confirmingDeploy) return;

@@ -38,7 +38,16 @@ final class FakeCanvas
             'slow_seconds' => !empty($options['slow']) ? 20.0 : 0.0,
             'slow_courses' => !empty($options['slow']) ? [1007] : [],
             'accounts' => !empty($options['non_admin']) ? [] : [['id' => 1, 'name' => 'Example College', 'parent_account_id' => null, 'root_account_id' => null]],
+            // Tools on account 1 (the root); account_tools_by holds the other accounts' tools.
             'account_tools' => [],
+            'account_tools_by' => [],
+            // Sub-accounts under the root: Arts > Music, and Science, where writes are refused.
+            'sub_accounts' => [
+                ['id' => 2, 'name' => 'Arts', 'parent_account_id' => 1, 'root_account_id' => 1],
+                ['id' => 3, 'name' => 'Music', 'parent_account_id' => 2, 'root_account_id' => 1],
+                ['id' => 4, 'name' => 'Science', 'parent_account_id' => 1, 'root_account_id' => 1],
+            ],
+            'forbidden_accounts' => [4],
             'terms' => [
                 10 => ['id' => 10, 'name' => 'Fall 2026', 'start_at' => $iso($now - 30 * 86400), 'end_at' => $iso($now + 60 * 86400)],
                 11 => ['id' => 11, 'name' => 'Spring 2026', 'start_at' => $iso($now - 250 * 86400), 'end_at' => $iso($now - 130 * 86400)],
@@ -131,18 +140,78 @@ final class FakeCanvas
             'GET /api/v1/users/self' => self::json(200, ['id' => 1, 'name' => 'Mock Admin']),
             'GET /api/v1/accounts' => self::json(200, $this->state['accounts']),
             'GET /api/v1/accounts/:id/terms' => self::json(200, ['enrollment_terms' => array_values($this->state['terms'])]),
-            'GET /api/v1/accounts/:id/external_tools' => self::json(200, $this->state['account_tools']),
+            'GET /api/v1/accounts/:id' => (function () use ($path): array {
+                $account = $this->account($this->accountId($path));
+                return $account === null ? self::json(404, ['errors' => [['message' => 'not found']]]) : self::json(200, $account);
+            })(),
+            'GET /api/v1/accounts/:id/sub_accounts' => (function () use ($path, $query): array {
+                $parent = $this->accountId($path);
+                $below = array_values(array_filter($this->state['sub_accounts'] ?? [], fn(array $account): bool => ($query['recursive'] ?? '') === 'true'
+                    ? in_array($parent, $this->ancestors((int)$account['id']), true)
+                    : (int)$account['parent_account_id'] === $parent));
+                return self::json(200, $below);
+            })(),
+            'GET /api/v1/accounts/:id/external_tools' => (function () use ($path, $query): array {
+                $id = $this->accountId($path);
+                $tools = $this->accountTools($id);
+                if (($query['include_parents'] ?? '') === 'true') {
+                    foreach ($this->ancestors($id) as $ancestor) {
+                        array_push($tools, ...$this->accountTools($ancestor));
+                    }
+                }
+                return self::json(200, $tools);
+            })(),
+            'POST /api/v1/accounts/:id/external_tools' => (function () use ($path, $form): array {
+                $id = $this->accountId($path);
+                if (in_array($id, $this->state['forbidden_accounts'] ?? [], true)) {
+                    return self::json(403, ['errors' => [['message' => 'user not authorized to perform that action']]]);
+                }
+                $tool = self::tool($this->state['next_id']++, (string)$form['name'], (string)$form['url'], (string)$form['consumer_key'], (string)$form['privacy_level']);
+                $tool['course_navigation'] = $form['course_navigation'] ?? null;
+                $tool['shared_secret_set'] = ($form['shared_secret'] ?? '') !== '';
+                $tools = $this->accountTools($id);
+                $tools[] = $tool;
+                $this->setAccountTools($id, $tools);
+                return self::json(200, $tool);
+            })(),
             'PUT /api/v1/accounts/:id/external_tools/:id' => (function () use ($path, $form): array {
+                $id = $this->accountId($path);
+                if (in_array($id, $this->state['forbidden_accounts'] ?? [], true)) {
+                    return self::json(403, ['errors' => [['message' => 'user not authorized to perform that action']]]);
+                }
                 preg_match('#/external_tools/(\d+)#', $path, $toolMatch);
-                foreach ($this->state['account_tools'] as &$tool) {
+                $tools = $this->accountTools($id);
+                foreach ($tools as &$tool) {
                     if ($tool['id'] === (int)$toolMatch[1]) {
-                        if (array_key_exists('course_navigation', $form)) {
-                            $tool['course_navigation'] = $form['course_navigation'];
+                        foreach (['course_navigation', 'consumer_key', 'privacy_level'] as $field) {
+                            if (array_key_exists($field, $form)) {
+                                $tool[$field] = $form[$field];
+                            }
                         }
-                        return self::json(200, $tool);
+                        if (array_key_exists('shared_secret', $form)) {
+                            $tool['shared_secret_set'] = $form['shared_secret'] !== '';
+                        }
+                        $updated = $tool;
+                        unset($tool);
+                        $this->setAccountTools($id, $tools);
+                        return self::json(200, $updated);
                     }
                 }
                 return self::json(404, ['errors' => [['message' => 'tool not found']]]);
+            })(),
+            'DELETE /api/v1/accounts/:id/external_tools/:id' => (function () use ($path): array {
+                $id = $this->accountId($path);
+                if (in_array($id, $this->state['forbidden_accounts'] ?? [], true)) {
+                    return self::json(403, ['errors' => [['message' => 'user not authorized to perform that action']]]);
+                }
+                preg_match('#/external_tools/(\d+)#', $path, $toolMatch);
+                $tools = $this->accountTools($id);
+                $kept = array_values(array_filter($tools, static fn(array $tool): bool => $tool['id'] !== (int)$toolMatch[1]));
+                if (count($kept) === count($tools)) {
+                    return self::json(404, ['errors' => [['message' => 'tool not found']]]);
+                }
+                $this->setAccountTools($id, $kept);
+                return self::json(200, ['id' => (int)$toolMatch[1]]);
             })(),
             'GET /api/v1/accounts/:id/courses' => $this->listCourses($query, $origin, $path),
             'GET /api/v1/courses' => $this->listUserCourses($query, $origin, $path),
@@ -275,6 +344,49 @@ final class FakeCanvas
             }),
             default => self::json(404, ['errors' => [['message' => 'No such mock route: ' . $route]]]),
         };
+    }
+
+    private function accountId(string $path): int
+    {
+        preg_match('#^/api/v1/accounts/(\d+)#', $path, $match);
+        return (int)($match[1] ?? 0);
+    }
+
+    private function account(int $id): ?array
+    {
+        foreach (array_merge($this->state['accounts'], $this->state['sub_accounts'] ?? []) as $account) {
+            if ((int)$account['id'] === $id) {
+                return $account;
+            }
+        }
+        // A token that is not an admin still sees the root by id.
+        return $id === 1 ? ['id' => 1, 'name' => 'Example College', 'parent_account_id' => null, 'root_account_id' => null] : null;
+    }
+
+    /** Parent, grandparent, ... up to the root. */
+    private function ancestors(int $id): array
+    {
+        $chain = [];
+        $account = $this->account($id);
+        while ($account !== null && !empty($account['parent_account_id'])) {
+            $chain[] = (int)$account['parent_account_id'];
+            $account = $this->account((int)$account['parent_account_id']);
+        }
+        return $chain;
+    }
+
+    private function accountTools(int $id): array
+    {
+        return $id === 1 ? $this->state['account_tools'] : ($this->state['account_tools_by'][$id] ?? []);
+    }
+
+    private function setAccountTools(int $id, array $tools): void
+    {
+        if ($id === 1) {
+            $this->state['account_tools'] = $tools;
+        } else {
+            $this->state['account_tools_by'][$id] = $tools;
+        }
     }
 
     private function course(string $path, callable $then): array

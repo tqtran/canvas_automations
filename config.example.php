@@ -32,6 +32,6 @@ return [
     // 'worker_key' => '',
 
     // Optional form defaults.
-    // 'canvas.link_name' => 'SLO Cloud',
-    // 'canvas.module_name' => 'SLO Cloud',
+    // 'canvas.link_name' => 'Course Reports',
+    // 'canvas.module_name' => 'Course Reports',
 ];

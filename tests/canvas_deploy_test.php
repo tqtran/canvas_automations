@@ -175,29 +175,29 @@ $check(!str_contains(print_r($client, true), FakeCanvas::TOKEN) && !str_contains
 
 // --- Deployer rules ---------------------------------------------------------------------
 $check(
-    CanvasLtiDeployer::normalizeUrl('HTTPS://SLO.example.edu:443/lti/launch.php/') === CanvasLtiDeployer::normalizeUrl('https://slo.example.edu/lti/launch.php'),
+    CanvasLtiDeployer::normalizeUrl('HTTPS://TOOL.example.edu:443/lti/launch.php/') === CanvasLtiDeployer::normalizeUrl('https://tool.example.edu/lti/launch.php'),
     'URL normalization ignores case, default port, and trailing slash incorrectly.'
 );
-$check(CanvasLtiDeployer::normalizeUrl('https://slo.example.edu/lti/launch.php?a=1') !== CanvasLtiDeployer::normalizeUrl('https://slo.example.edu/lti/launch.php'), 'Query was dropped from URL comparison.');
-$check(CanvasLtiDeployer::normalizeUrl('https://slo.example.edu:8443/x') === 'https://slo.example.edu:8443/x', 'Custom port dropped from URL comparison.');
+$check(CanvasLtiDeployer::normalizeUrl('https://tool.example.edu/lti/launch.php?a=1') !== CanvasLtiDeployer::normalizeUrl('https://tool.example.edu/lti/launch.php'), 'Query was dropped from URL comparison.');
+$check(CanvasLtiDeployer::normalizeUrl('https://tool.example.edu:8443/x') === 'https://tool.example.edu:8443/x', 'Custom port dropped from URL comparison.');
 $launch = FakeCanvas::LAUNCH_URL;
-$check(CanvasLtiDeployer::findMatchingTool([FakeCanvas::tool(1, 'Other', null, 'k', 'public', 'SLO.example.edu')], $launch) !== null, 'Domain-only tool was not matched.');
-$check(CanvasLtiDeployer::findMatchingTool([FakeCanvas::tool(1, 'Other', 'https://slo.example.edu/other', 'k', 'public', 'slo.example.edu')], $launch) === null, 'A different URL on the same domain was matched.');
+$check(CanvasLtiDeployer::findMatchingTool([FakeCanvas::tool(1, 'Other', null, 'k', 'public', 'TOOL.example.edu')], $launch) !== null, 'Domain-only tool was not matched.');
+$check(CanvasLtiDeployer::findMatchingTool([FakeCanvas::tool(1, 'Other', 'https://tool.example.edu/other', 'k', 'public', 'tool.example.edu')], $launch) === null, 'A different URL on the same domain was matched.');
 $foreign = CanvasLtiDeployer::findForeignTools([
-    FakeCanvas::tool(1, 'SLO Cloud Reporting', FakeCanvas::PROD_LAUNCH_URL, 'k'),
+    FakeCanvas::tool(1, 'Course Reports', FakeCanvas::PROD_LAUNCH_URL, 'k'),
     FakeCanvas::tool(2, 'Zoom', 'https://zoom.example/lti', 'zoom'),
     FakeCanvas::tool(3, 'Legacy', 'https://old.example/lti', FakeCanvas::CONSUMER_KEY),
-    FakeCanvas::tool(4, 'SLO Cloud Reporting', $launch, FakeCanvas::CONSUMER_KEY),
-], $launch, 'SLO Cloud Reporting', FakeCanvas::CONSUMER_KEY);
-$check(array_column($foreign, 'id') === [1, 3], 'Foreign SLO Cloud tools were not identified by name or key.');
+    FakeCanvas::tool(4, 'Course Reports', $launch, FakeCanvas::CONSUMER_KEY),
+], $launch, 'Course Reports', FakeCanvas::CONSUMER_KEY);
+$check(array_column($foreign, 'id') === [1, 3], 'Foreign Course Tool tools were not identified by name or key.');
 $warnings = CanvasLtiDeployer::toolWarnings(FakeCanvas::tool(1, 'x', $launch, 'other-key', 'anonymous'), FakeCanvas::CONSUMER_KEY);
 $check(count($warnings) === 2, 'Key and privacy mismatches were not both reported.');
 $payload = CanvasLtiDeployer::toolPayload([
-    'link_name' => 'SLO Cloud Reporting', 'consumer_key' => 'k', 'consumer_secret' => 's', 'launch_url' => $launch,
+    'link_name' => 'Course Reports', 'consumer_key' => 'k', 'consumer_secret' => 's', 'launch_url' => $launch,
 ]);
 $check($payload['privacy_level'] === 'public', 'Tool is not created with public privacy (names and email).');
 $check($payload['course_navigation']['visibility'] === 'admins' && $payload['course_navigation']['enabled'] === 'true', 'Course navigation is not limited to instructors.');
-$check($payload['course_navigation']['text'] === 'SLO Cloud Reporting' && $payload['shared_secret'] === 's' && $payload['url'] === $launch, 'Tool payload fields are wrong.');
+$check($payload['course_navigation']['text'] === 'Course Reports' && $payload['shared_secret'] === 's' && $payload['url'] === $launch, 'Tool payload fields are wrong.');
 
 $now = (int)$clock->now;
 $past = gmdate('Y-m-d\TH:i:s\Z', $now - 86400);
@@ -216,7 +216,7 @@ $canvas = new FakeCanvas(FakeCanvas::scenario(['fresh_courses' => 0]), static fu
 $fakeClient = new CanvasClient('https://canvas.test', FakeCanvas::TOKEN, new FakeCanvasTransport($canvas, $clock), null, $clock, [$clock, 'sleep']);
 $deploySettings = [
     'launch_url' => $launch, 'consumer_key' => FakeCanvas::CONSUMER_KEY, 'consumer_secret' => FakeCanvas::CONSUMER_SECRET,
-    'link_name' => 'SLO Cloud Reporting', 'create_module' => true, 'module_name' => 'SLO Cloud', 'dry_run' => false, 'account_tool' => false,
+    'link_name' => 'Course Reports', 'create_module' => true, 'module_name' => 'Course Tool', 'dry_run' => false, 'account_tool' => false,
 ];
 $courseRow = static fn(int $id): array => CanvasLtiDeployer::compactCourse(['id' => $id, 'name' => 'Course ' . $id, 'sis_course_id' => (string)$id]);
 $posts = static fn(): int => count(array_filter($canvas->state['calls'], static fn(string $call): bool => str_starts_with($call, 'POST')));
@@ -260,14 +260,14 @@ $check(array_intersect_key($navOf(['nav_visibility' => 'members']), ['visibility
 $check(array_intersect_key($navOf(['nav_visibility' => 'hidden']), ['visibility' => 1, 'default' => 1]) === ['visibility' => 'members', 'default' => 'disabled'], 'A hidden nav link has the wrong fields.');
 $check(CanvasLtiDeployer::navVisibility('bogus') === 'admins', 'An unknown nav visibility was kept.');
 $check(CanvasLtiDeployer::navFieldsFrom(['nav_default' => 'disabled']) === ['admins', 'disabled'], 'A run queued with nav_default lost its meaning.');
-$navTool = ['course_navigation' => CanvasLtiDeployer::navPlacement('SLO Cloud Reporting')];
-$check(!CanvasLtiDeployer::navDiffers($navTool, 'SLO Cloud Reporting', 'admins', 'enabled'), 'An identical nav link was seen as different.');
-$check(CanvasLtiDeployer::navDiffers($navTool, 'SLO Cloud', 'admins', 'enabled') && CanvasLtiDeployer::navDiffers($navTool, 'SLO Cloud Reporting', 'admins', 'disabled')
-    && CanvasLtiDeployer::navDiffers($navTool, 'SLO Cloud Reporting', 'members', 'enabled'), 'A changed link name, default or visibility was not seen as different.');
+$navTool = ['course_navigation' => CanvasLtiDeployer::navPlacement('Course Reports')];
+$check(!CanvasLtiDeployer::navDiffers($navTool, 'Course Reports', 'admins', 'enabled'), 'An identical nav link was seen as different.');
+$check(CanvasLtiDeployer::navDiffers($navTool, 'Course Tool', 'admins', 'enabled') && CanvasLtiDeployer::navDiffers($navTool, 'Course Reports', 'admins', 'disabled')
+    && CanvasLtiDeployer::navDiffers($navTool, 'Course Reports', 'members', 'enabled'), 'A changed link name, default or visibility was not seen as different.');
 $check(!CanvasLtiDeployer::navDiffers(['course_navigation' => ['text' => 'X', 'visibility' => 'admins', 'enabled' => true]], 'X', 'admins', 'enabled'),
     'A nav link without a default was not read as shown, as Canvas treats it.');
 
-$navSettings = ['create_nav' => true, 'create_module' => false, 'link_name' => 'SLO Cloud', 'nav_visibility' => 'hidden'] + $deploySettings;
+$navSettings = ['create_nav' => true, 'create_module' => false, 'link_name' => 'Course Tool', 'nav_visibility' => 'hidden'] + $deploySettings;
 $puts = static fn(): int => count(array_filter($canvas->state['calls'], static fn(string $call): bool => str_starts_with($call, 'PUT')));
 $putsBefore = $puts();
 $leftAlone = (new CanvasLtiDeployer($fakeClient, $navSettings))->deployCourse($courseRow(1001));
@@ -276,7 +276,7 @@ $navDry = (new CanvasLtiDeployer($fakeClient, ['update_nav' => true, 'dry_run' =
 $check($navDry['nav'] === 'would_update' && $navDry['tool'] === 'present' && $puts() === $putsBefore, 'A nav update dry run wrote to Canvas or misreported.');
 $navUpdated = (new CanvasLtiDeployer($fakeClient, ['update_nav' => true] + $navSettings))->deployCourse($courseRow(1001));
 $updatedNav = $canvas->state['courses'][1001]['tools'][0]['course_navigation'] ?? [];
-$check($navUpdated['nav'] === 'updated' && $navUpdated['status'] === 'ok' && ($updatedNav['text'] ?? '') === 'SLO Cloud'
+$check($navUpdated['nav'] === 'updated' && $navUpdated['status'] === 'ok' && ($updatedNav['text'] ?? '') === 'Course Tool'
     && ($updatedNav['default'] ?? '') === 'disabled' && ($updatedNav['visibility'] ?? '') === 'members', 'An existing nav link was not updated.');
 $check(($canvas->state['courses'][1001]['tools'][0]['consumer_key'] ?? '') === FakeCanvas::CONSUMER_KEY, 'Updating the nav link changed the tool credentials.');
 $putsBefore = $puts();
@@ -285,7 +285,7 @@ $check($navSame['nav'] === 'present' && $puts() === $putsBefore, 'A nav link tha
 $navOff = (new CanvasLtiDeployer($fakeClient, ['update_nav' => true, 'create_nav' => false] + $navSettings))->deployCourse($courseRow(1001));
 $check($navOff['nav'] === 'present' && $puts() === $putsBefore, '"Update if found" for nav applied with the nav link turned off.');
 
-$canvas->state['account_tools'] = [['course_navigation' => CanvasLtiDeployer::navPlacement('SLO Cloud Reporting')] + FakeCanvas::tool(901, 'SLO Cloud Reporting', $launch, FakeCanvas::CONSUMER_KEY)];
+$canvas->state['account_tools'] = [['course_navigation' => CanvasLtiDeployer::navPlacement('Course Reports')] + FakeCanvas::tool(901, 'Course Reports', $launch, FakeCanvas::CONSUMER_KEY)];
 $putsBefore = $puts();
 $fromAccount = (new CanvasLtiDeployer($fakeClient, ['update_nav' => true] + $navSettings))->deployCourse($courseRow(1008));
 $check($fromAccount['nav'] === 'present' && $puts() === $putsBefore && str_contains(implode(' ', $fromAccount['notes']), 'comes from the account'),
@@ -309,7 +309,7 @@ $newModule = $canvas->state['courses'][1300]['modules'][0] ?? [];
 $check($published['module'] === 'created' && ($newModule['published'] ?? false) === true && ($newModule['items'][0]['published'] ?? false) === true,
     'A published module and its link were not published.');
 $check(($canvas->state['courses'][1300]['tools'][0]['privacy_level'] ?? '') === 'email_only', 'A new tool did not get the chosen privacy.');
-$canvas->state['courses'][1301]['modules'] = [['id' => 9901, 'name' => 'SLO Cloud', 'published' => false, 'items' => []]];
+$canvas->state['courses'][1301]['modules'] = [['id' => 9901, 'name' => 'Course Tool', 'published' => false, 'items' => []]];
 $reused = (new CanvasLtiDeployer($fakeClient, ['module_published' => true] + $deploySettings))->deployCourse($courseRow(1301));
 $reusedModule = $canvas->state['courses'][1301]['modules'][0] ?? [];
 $check($reused['module'] === 'added' && ($reusedModule['published'] ?? true) === false && ($reusedModule['items'][0]['published'] ?? false) === true
@@ -319,7 +319,7 @@ $check(($canvas->state['courses'][1302]['modules'][0]['published'] ?? true) === 
     'An unpublished module choice published something.');
 
 // --- Run service ------------------------------------------------------------------------
-$lockRoot = sys_get_temp_dir() . '/slocloud-canvas-deploy-test-' . bin2hex(random_bytes(4));
+$lockRoot = sys_get_temp_dir() . '/lti-deploy-test-' . bin2hex(random_bytes(4));
 $lti = ['launch_url' => $launch, 'consumer_key' => FakeCanvas::CONSUMER_KEY, 'consumer_secret' => FakeCanvas::CONSUMER_SECRET];
 $audits = [];
 $logs = [];
@@ -338,7 +338,7 @@ $newService = static function (array &$store, FakeCanvas $canvas, FakeClock $clo
     );
 };
 $settings = static fn(array $overrides = []): array => $overrides + [
-    'base_url' => 'https://canvas.test', 'link_name' => 'SLO Cloud Reporting', 'create_module' => '1', 'module_name' => 'SLO Cloud',
+    'base_url' => 'https://canvas.test', 'link_name' => 'Course Reports', 'create_module' => '1', 'module_name' => 'Course Tool',
     'course_delay_ms' => '0', 'scope' => 'term', 'scope_value' => '10', 'dry_run' => '0', 'canvas_token' => FakeCanvas::TOKEN,
 ];
 $runAll = static function (CanvasDeployRun $service, string $runId, string $runKey, array &$batches): array {
@@ -365,11 +365,11 @@ $check(CanvasDeployRun::validateSettings($settings(['scope' => 'course', 'scope_
 $check(isset(CanvasDeployRun::validateSettings($settings(['course_delay_ms' => '-1']))['errors']['course_delay_ms']), 'Negative delay accepted.');
 $check(isset(CanvasDeployRun::validateSettings($settings(['scope' => 'term', 'scope_value' => '']))['errors']['scope_value']), 'Missing term accepted.');
 $check(CanvasDeployRun::configValues($validated['settings']) === [
-    'canvas.base_url' => 'https://canvas.test', 'canvas.link_name' => 'SLO Cloud Reporting', 'canvas.create_module' => true,
-    'canvas.module_name' => 'SLO Cloud', 'canvas.course_delay_ms' => 0, 'canvas.default_scope' => 'term', 'canvas.default_scope_value' => '10',
+    'canvas.base_url' => 'https://canvas.test', 'canvas.link_name' => 'Course Reports', 'canvas.create_module' => true,
+    'canvas.module_name' => 'Course Tool', 'canvas.course_delay_ms' => 0, 'canvas.default_scope' => 'term', 'canvas.default_scope_value' => '10',
 ], 'Defaults are not mapped to the canvas config keys.');
 $configDefaults = CanvasDeployRun::defaultsFromConfig(static fn(string $key, mixed $default): mixed => ['canvas.default_scope' => 'bogus', 'canvas.course_delay_ms' => '500', 'canvas.link_name' => ''][$key] ?? $default);
-$check($configDefaults['scope'] === 'active' && $configDefaults['course_delay_ms'] === 500 && $configDefaults['link_name'] === 'SLO Cloud Reporting', 'Config defaults were not sanitized.');
+$check($configDefaults['scope'] === 'active' && $configDefaults['course_delay_ms'] === 500 && $configDefaults['link_name'] === 'External Tool', 'Config defaults were not sanitized.');
 
 $clock = new FakeClock();
 $canvas = new FakeCanvas(FakeCanvas::scenario(), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
@@ -563,9 +563,9 @@ $check(!in_array('GET /api/v1/courses/1001/external_tools', $canvas->state['call
 // Removing the tool and its module link. Earlier blocks leave their run lock held.
 array_map('unlink', glob($lockRoot . '/*') ?: []);
 $removeCanvas = new FakeCanvas(FakeCanvas::scenario(), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
-$removeCanvas->state['courses'][1010]['modules'][0]['items'] = [['id' => 7100, 'type' => 'ExternalTool', 'title' => 'SLO', 'external_url' => $launch]];
+$removeCanvas->state['courses'][1010]['modules'][0]['items'] = [['id' => 7100, 'type' => 'ExternalTool', 'title' => 'Tool link', 'external_url' => $launch]];
 $removeCanvas->state['courses'][1010]['modules'][0]['published'] = false;
-$removeCanvas->state['courses'][1010]['modules'][0]['name'] = 'SLO Cloud';
+$removeCanvas->state['courses'][1010]['modules'][0]['name'] = 'Course Tool';
 $removeSettings = static fn(array $overrides = []): array => $settings(['scope' => 'course', 'scope_value' => '1001,1002,1010,1011', 'operation' => 'remove'] + $overrides);
 $store = [];
 $service = $newService($store, $removeCanvas, $clock);
@@ -594,8 +594,8 @@ foreach ($rows as $row) {
 }
 $check(($byId[1002]['tool'] ?? '') === 'removed' && $removeCanvas->state['courses'][1002]['tools'] === [], 'The course tool was not removed.');
 $check(($byId[1011]['module'] ?? '') === 'removed' && $removeCanvas->state['courses'][1011]['modules'][0]['items'] === [], 'The module link was not removed.');
-$check(count($removeCanvas->state['courses'][1011]['modules']) === 1, 'A module that is not the SLO Cloud module was deleted.');
-$check(($byId[1010]['module'] ?? '') === 'removed' && !array_filter($removeCanvas->state['courses'][1010]['modules'], static fn(array $module): bool => $module['name'] === 'SLO Cloud'), 'The emptied, unpublished SLO Cloud module was not deleted.');
+$check(count($removeCanvas->state['courses'][1011]['modules']) === 1, 'A module that is not the Course Tool module was deleted.');
+$check(($byId[1010]['module'] ?? '') === 'removed' && !array_filter($removeCanvas->state['courses'][1010]['modules'], static fn(array $module): bool => $module['name'] === 'Course Tool'), 'The emptied, unpublished Course Tool module was not deleted.');
 $service->dispatch('run_cancel', ['run_id' => '', 'run_key' => '']);
 
 // Updating the credentials of a tool that is already in the course.
@@ -673,17 +673,17 @@ $batches = [];
 $runAll($top, $started['body']['run_id'], $started['body']['run_key'], $batches);
 $top->dispatch('run_finish', ['run_id' => $started['body']['run_id'], 'run_key' => $started['body']['run_key']]);
 $firstModule = static fn(int $id): string => (string)($topCanvas->state['courses'][$id]['modules'][0]['name'] ?? '');
-$check($firstModule(1001) === 'SLO Cloud' && count($topCanvas->state['courses'][1001]['modules']) === 2, 'A new SLO Cloud module was not created at the top.');
-$check($firstModule(1010) === 'SLO Cloud' && count($topCanvas->state['courses'][1010]['modules']) === 2, 'An existing SLO Cloud module was not moved to the top.');
+$check($firstModule(1001) === 'Course Tool' && count($topCanvas->state['courses'][1001]['modules']) === 2, 'A new Course Tool module was not created at the top.');
+$check($firstModule(1010) === 'Course Tool' && count($topCanvas->state['courses'][1010]['modules']) === 2, 'An existing Course Tool module was not moved to the top.');
 
-// Any https launch URL is accepted (e.g. https://cloud.coastline.edu/SLO); plain http is not.
-$httpUrl = $urlOnly->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'lti_launch_url' => 'http://slo.example.edu/SLO']));
+// Any https launch URL is accepted (e.g. https://tool.example.edu/lti); plain http is not.
+$httpUrl = $urlOnly->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001', 'lti_launch_url' => 'http://tool.example.edu/lti']));
 $check($httpUrl['status'] === 422 && array_key_exists('lti_launch_url', $httpUrl['body']['fields'] ?? []), 'A plain http launch URL was accepted.');
 
 // Doubtful matches (no nav link, or matched only by domain) are reported and nothing is added.
 $noNavCanvas = new FakeCanvas(FakeCanvas::scenario(), static function (float $seconds) use ($clock): void { $clock->now += $seconds; });
 $noNavCanvas->state['courses'][1002]['tools'][0]['course_navigation'] = null;
-$noNavCanvas->state['courses'][1001]['tools'] = [FakeCanvas::tool(805, 'Coastline Portal', null, 'other-key', 'public', 'slo.example.edu')];
+$noNavCanvas->state['courses'][1001]['tools'] = [FakeCanvas::tool(805, 'Campus Portal', null, 'other-key', 'public', 'tool.example.edu')];
 $noNavStore = [];
 $noNav = $noLti($noNavStore, $noNavCanvas);
 $started = $noNav->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1001,1002', 'create_module' => '1', 'lti_launch_url' => $launch, 'lti_consumer_key' => 'k', 'lti_consumer_secret' => 's', 'create_nav' => '1']));
@@ -698,7 +698,7 @@ $check(($byId[1002]['tool'] ?? '') === 'present' && ($byId[1002]['nav'] ?? '') =
     && ($navTool['course_navigation']['text'] ?? '') !== '' && empty($navTool['shared_secret_set']),
     'A course tool without a nav link did not get one (without touching its secret).');
 $check(($byId[1001]['tool'] ?? '') === 'doubtful' && ($byId[1001]['status'] ?? '') === 'skipped'
-    && $hasNote($byId[1001], 'only by its domain') && $hasNote($byId[1001], 'Coastline Portal'), 'A domain-only match was not reported and skipped.');
+    && $hasNote($byId[1001], 'only by its domain') && $hasNote($byId[1001], 'Campus Portal'), 'A domain-only match was not reported and skipped.');
 $check(count($noNavCanvas->state['courses'][1001]['tools']) === 1 && $noNavCanvas->state['courses'][1001]['modules'] === [],
     'Something was added to a course with a doubtful match.');
 
@@ -792,7 +792,7 @@ $service = $newService($store, $canvas, $clock);
 $check($service->dispatch('run_start', $settings())['body']['error'] === 'not_admin', 'A non-admin token could start a run.');
 $check($service->dispatch('test_connection', $settings())['body']['is_admin'] === false, 'Non-admin token reported as admin.');
 
-$prerequisites = CanvasDeployRun::prerequisites(['launch_url' => 'http://slo.example.edu/lti/launch.php', 'consumer_key' => '', 'consumer_secret' => 's']);
+$prerequisites = CanvasDeployRun::prerequisites(['launch_url' => 'http://tool.example.edu/lti/launch.php', 'consumer_key' => '', 'consumer_secret' => 's']);
 $check(!$prerequisites[0]['ok'] && !$prerequisites[1]['ok'] && $prerequisites[2]['ok'], 'Prerequisites do not require an https launch URL and a consumer key.');
 
 // The shared queue: runs from several people take turns, a worker finishes them without a

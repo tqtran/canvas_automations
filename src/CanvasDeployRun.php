@@ -62,9 +62,9 @@ final class CanvasDeployRun
     public const SCOPES = ['course', 'term', 'active', 'all'];
     public const DEFAULTS = [
         'base_url' => '',
-        'link_name' => 'SLO Cloud Reporting',
+        'link_name' => 'External Tool',
         'create_module' => true,
-        'module_name' => 'SLO Cloud',
+        'module_name' => 'External Tool',
         'course_delay_ms' => 250,
         'scope' => 'active',
         'scope_value' => '',
@@ -536,7 +536,7 @@ final class CanvasDeployRun
         $launchOk = filter_var($effective['launch_url'], FILTER_VALIDATE_URL) !== false
             && strtolower((string)parse_url($effective['launch_url'], PHP_URL_SCHEME)) === 'https';
         if (!$launchOk) {
-            $ltiErrors['lti_launch_url'] = 'Enter the SLO Cloud LTI launch URL (an https address).';
+            $ltiErrors['lti_launch_url'] = 'Enter the tool\'s LTI launch URL (an https address).';
         }
         // The key and secret are only needed to create a tool in a course that has none (a tool
         // pushed from the account needs nothing), or to rewrite existing tools. Without them,
@@ -552,7 +552,7 @@ final class CanvasDeployRun
             }
         }
         if ($ltiErrors !== []) {
-            throw new CanvasDeployException('Fill in the SLO Cloud LTI settings.', 'lti_required', 422, $ltiErrors);
+            throw new CanvasDeployException('Fill in the tool\'s LTI settings.', 'lti_required', 422, $ltiErrors);
         }
         // Starting again in the same session replaces this administrator's previous run.
         if (isset($this->store['run']['id'])) {
@@ -569,8 +569,8 @@ final class CanvasDeployRun
         }
 
         $notes = [];
-        // Opt-in: give the account's own SLO Cloud tool a Course Navigation link, so every
-        // course under it shows SLO Cloud. Needs no key or secret.
+        // Opt-in: give the account's own copy of the tool a Course Navigation link, so courses
+        // under it get the link. Needs no key or secret.
         $accountNavFixed = false;
         if (!empty($settings['fix_account_nav']) && $settings['operation'] === 'deploy') {
             if ($accounts === []) {
@@ -582,7 +582,7 @@ final class CanvasDeployRun
                 if ($match === null || CanvasLtiDeployer::doubtfulMatch($match) !== null || !CanvasLtiDeployer::lacksNav($match)) {
                     continue;
                 }
-                $label = 'Account "' . (string)($account['name'] ?? $account['id']) . '": SLO Cloud ' . CanvasLtiDeployer::describeTool($match);
+                $label = 'Account "' . (string)($account['name'] ?? $account['id']) . '": the tool ' . CanvasLtiDeployer::describeTool($match);
                 if (empty($settings['dry_run'])) {
                     $client->put('/api/v1/accounts/' . (int)$account['id'] . '/external_tools/' . (int)$match['id'], [
                         'course_navigation' => CanvasLtiDeployer::navPlacement($settings['link_name'], ...CanvasLtiDeployer::navFieldsFrom($settings)),
@@ -594,7 +594,7 @@ final class CanvasDeployRun
                 $accountNavFixed = true;
             }
             if ($accounts !== [] && !$accountNavFixed) {
-                $notes[] = 'No account-level SLO Cloud tool without a nav link was found in your admin accounts, so no account tool was changed.';
+                $notes[] = 'No account-level copy of the tool without a nav link was found in your admin accounts, so no account tool was changed.';
             }
         }
 
@@ -610,7 +610,7 @@ final class CanvasDeployRun
                 // Each course is then checked and reported on its own.
                 $accountTool = false;
                 $notes[] = 'Account "' . (string)($account['name'] ?? $account['id']) . '": '
-                    . ($doubt ?? 'SLO Cloud ' . CanvasLtiDeployer::describeTool($match) . ' has no Course Navigation link; each course is checked on its own.');
+                    . ($doubt ?? 'The tool ' . CanvasLtiDeployer::describeTool($match) . ' has no Course Navigation link; each course is checked on its own.');
                 continue;
             }
             foreach (CanvasLtiDeployer::toolWarnings($match, $effective['consumer_key'], $settings['privacy_level']) as $warning) {
@@ -618,7 +618,7 @@ final class CanvasDeployRun
             }
         }
         if ($accountTool) {
-            $notes[] = 'SLO Cloud is already installed at the account level, so per-course tool checks are skipped.';
+            $notes[] = 'The tool is already installed at the account level, so per-course tool checks are skipped.';
             if (!empty($settings['update_nav'])) {
                 $notes[] = 'Its nav link comes from the account tool, so "Update the nav link" changes nothing in these courses.';
             }
@@ -893,7 +893,7 @@ final class CanvasDeployRun
         // Runs started before these counts existed have no such keys yet.
         $counts += array_fill_keys(['tool_copied', 'tool_would_copy'], 0);
         // A course copy made for the nav link is counted with "already present" (the course had
-        // SLO Cloud from its account) and on its own line, not as a new install.
+        // the tool from its account) and on its own line, not as a new install.
         match ($row['tool']) {
             'created' => $counts['tool_created']++,
             'would_create' => $counts['tool_would_create']++,
@@ -1251,7 +1251,7 @@ final class CanvasDeployRun
             if (($holder['run_id'] ?? '') !== '' && $holder['run_id'] !== $runId
                 && $now - (int)($holder['touched_at'] ?? 0) <= self::IDLE_EXPIRY) {
                 throw new CanvasDeployException(
-                    'Another Canvas deployment is running on this SLO Cloud server (started '
+                    'Another Canvas deployment is running on this server (started '
                     . gmdate('Y-m-d H:i', (int)($holder['started_at'] ?? $now)) . ' UTC). Try again when it finishes.',
                     'run_locked',
                     409

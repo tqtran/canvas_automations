@@ -55,7 +55,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
     <div class="container-fluid">
         <span class="navbar-brand mb-0 d-flex align-items-center gap-2">
             <i class="bi bi-cloud-upload text-primary" aria-hidden="true"></i>
-            <span>SLO Cloud</span>
+            <span>LTI 1.1 Deployment Tool</span>
         </span>
     </div>
 </nav>
@@ -83,7 +83,7 @@ $cdWorkerFresh = $queue->workerFresh();
 </div>
 <div class="app-content">
 <div class="container-fluid">
-<p class="lead">Install the SLO Cloud LTI 1.1 tool in your Canvas courses. Connect with your Canvas token, pick courses, and run. It's safe to run again: courses only get what they're missing.</p>
+<p class="lead">Install an LTI 1.1 tool in your Canvas courses. Connect with your Canvas token, pick courses, and run. It's safe to run again: courses only get what they're missing.</p>
 
 <div class="row g-4">
     <div class="col-xl-8">
@@ -97,16 +97,16 @@ $cdWorkerFresh = $queue->workerFresh();
                         <legend class="visually-hidden">What should this run do?</legend>
                         <div class="btn-group" role="group" aria-label="Install or remove">
                             <input class="btn-check" type="radio" name="operation" id="cdOpDeploy" value="deploy" checked>
-                            <label class="btn btn-outline-primary" for="cdOpDeploy"><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>Install SLO Cloud</label>
+                            <label class="btn btn-outline-primary" for="cdOpDeploy"><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>Install the tool</label>
                             <input class="btn-check" type="radio" name="operation" id="cdOpRemove" value="remove">
-                            <label class="btn btn-outline-danger" for="cdOpRemove"><i class="bi bi-trash me-1" aria-hidden="true"></i>Remove SLO Cloud</label>
+                            <label class="btn btn-outline-danger" for="cdOpRemove"><i class="bi bi-trash me-1" aria-hidden="true"></i>Remove the tool</label>
                         </div>
                         <div class="form-text" id="cdOpHelp">Remove deletes the course tool and its module link, and the module itself if that leaves it empty and unpublished. Account-level tools are reported, not removed.</div>
                     </fieldset>
                     <hr>
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="checkbox" id="cdLtiOwn" <?= $cdServerLti ? '' : 'checked disabled' ?>>
-                        <label class="form-check-label" for="cdLtiOwn">Enter the SLO Cloud LTI settings for this run</label>
+                        <label class="form-check-label" for="cdLtiOwn">Enter the tool's LTI settings for this run</label>
                     </div>
                     <p class="form-text" id="cdLtiHelp"><?= $cdServerLti
                         ? 'Leave unticked to use the settings saved on this server. Tick to enter your own for this run. Nothing is saved.'
@@ -115,7 +115,7 @@ $cdWorkerFresh = $queue->workerFresh();
                     <div class="mb-3">
                         <label for="cdLtiUrl" class="form-label">LTI launch URL</label>
                         <input type="text" inputmode="url" class="form-control" id="cdLtiUrl" name="lti_launch_url" autocomplete="off" spellcheck="false"
-                            placeholder="https://cloud.coastline.edu/SLO" aria-describedby="cdLtiUrlError">
+                            placeholder="https://tool.example.edu/lti/launch" aria-describedby="cdLtiUrlError">
                         <div id="cdLtiUrlError" class="invalid-feedback"></div>
                     </div>
                     <div class="row g-3" id="cdLtiKeyRow">
@@ -224,9 +224,9 @@ $cdWorkerFresh = $queue->workerFresh();
                                     <thead>
                                         <tr>
                                             <th scope="col" style="width: 2.5rem"><span class="visually-hidden">Selected</span></th>
-                                            <th scope="col" class="text-center" title="SLO Cloud tool in the course or from its account">App</th>
-                                            <th scope="col" class="text-center" title="SLO Cloud link in Course Navigation">Nav</th>
-                                            <th scope="col" class="text-center" title="Module link to SLO Cloud">Module</th>
+                                            <th scope="col" class="text-center" title="The tool, in the course or from its account">App</th>
+                                            <th scope="col" class="text-center" title="The tool's link in Course Navigation">Nav</th>
+                                            <th scope="col" class="text-center" title="Module link to the tool">Module</th>
                                             <th scope="col">Course</th>
                                             <th scope="col">Code</th>
                                             <th scope="col">Term</th>
@@ -260,7 +260,7 @@ $cdWorkerFresh = $queue->workerFresh();
                                 </div>
                                 <div id="cdTermError" class="invalid-feedback"></div>
                             </div>
-                        <p class="form-text mb-0 d-none" id="cdScopeAllNote">Checks every course in the account. Courses that already have SLO Cloud are skipped.</p>
+                        <p class="form-text mb-0 d-none" id="cdScopeAllNote">Checks every course in the account. Courses that already have the tool are skipped.</p>
                         <div id="cdScopeError" class="invalid-feedback"></div>
                     </fieldset>
                 </div>
@@ -290,8 +290,8 @@ $cdWorkerFresh = $queue->workerFresh();
                     </div>
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="checkbox" id="cdCreateNav" name="create_nav" checked>
-                        <label class="form-check-label" for="cdCreateNav">Add a Course Navigation link to SLO Cloud</label>
-                        <div class="form-text">Where the link is already there it's left alone, unless "Update" below is ticked. If SLO Cloud comes from the account without a nav link, the course gets its own copy to carry it. Needs the key and secret.</div>
+                        <label class="form-check-label" for="cdCreateNav">Add a Course Navigation link to the tool</label>
+                        <div class="form-text">Where the link is already there it's left alone, unless "Update" below is ticked. If the tool comes from the account without a nav link, the course gets its own copy to carry it. Needs the key and secret.</div>
                     </div>
                     <div class="mb-3 ms-4" id="cdNavOptions">
                         <label for="cdNavVisibility" class="form-label">Who sees the nav link</label>
@@ -309,7 +309,7 @@ $cdWorkerFresh = $queue->workerFresh();
                     </div>
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="checkbox" id="cdCreateModule" name="create_module" <?= $cdDefaults['create_module'] ? 'checked' : '' ?>>
-                        <label class="form-check-label" for="cdCreateModule">Also add a module with a link to SLO Cloud</label>
+                        <label class="form-check-label" for="cdCreateModule">Also add a module with a link to the tool</label>
                     </div>
                     <div class="mb-3 ms-4">
                         <label for="cdModuleName" class="form-label">Module name</label>
@@ -331,8 +331,8 @@ $cdWorkerFresh = $queue->workerFresh();
                     </div>
                     <div class="form-check mb-2 d-none" id="cdFixAccountNavWrap">
                         <input class="form-check-input" type="checkbox" id="cdFixAccountNav">
-                        <label class="form-check-label" for="cdFixAccountNav">Add the nav link to the account's SLO Cloud tool</label>
-                        <div class="form-text">Adds the nav link once on the account's SLO Cloud tool, so courses under it get the link, seen by whoever is chosen above. Needs an admin token. A dry run only reports it.</div>
+                        <label class="form-check-label" for="cdFixAccountNav">Add the nav link to the account's copy of the tool</label>
+                        <div class="form-text">Adds the nav link once on the account's copy of the tool, so courses under it get the link, seen by whoever is chosen above. Needs an admin token. A dry run only reports it.</div>
                     </div>
                     <div class="mb-0 mt-3">
                         <label for="cdDelay" class="form-label">Delay between courses (milliseconds)</label>
@@ -481,8 +481,8 @@ $cdWorkerFresh = $queue->workerFresh();
             <div class="card-body">
                 <ul class="mb-0">
                     <li>A course navigation tab for teachers and admins, or for everyone in the course, or hidden until a teacher turns it on.</li>
-                    <li>Optionally, a module with a link to SLO Cloud, unpublished (teachers only) or published.</li>
-                    <li>Courses only get what they're missing. If SLO Cloud comes from the account without a nav link, the course gets its own copy to carry it.</li>
+                    <li>Optionally, a module with a link to the tool, unpublished (teachers only) or published.</li>
+                    <li>Courses only get what they're missing. If the tool comes from the account without a nav link, the course gets its own copy to carry it.</li>
                     <li>Blueprint child courses are skipped; deploy to the Blueprint course and let sync apply it.</li>
                     <li>Runs are queued and go one at a time, in order. Follow them in Runs and queue.</li>
                 </ul>
@@ -510,7 +510,7 @@ $cdWorkerFresh = $queue->workerFresh();
     </div>
 </section>
 <footer class="app-footer small">
-    <span class="text-body-secondary">Deploy to Canvas · installs the SLO Cloud LTI 1.1 tool in Canvas courses.</span>
+    <span class="text-body-secondary">Deploy to Canvas · installs an LTI 1.1 tool in Canvas courses.</span>
 </footer>
 </div>
 
@@ -592,14 +592,14 @@ $cdWorkerFresh = $queue->workerFresh();
         try {
             response = await fetch(config.apiUrl, { method: 'POST', body, credentials: 'same-origin', headers: { Accept: 'application/json' } });
         } catch (error) {
-            throw { error: 'network', message: 'SLO Cloud could not be reached. Check your connection, then retry.' };
+            throw { error: 'network', message: 'The server could not be reached. Check your connection, then retry.' };
         }
         let payload = null;
         let raw = '';
         try { raw = await response.text(); } catch (error) { raw = ''; }
         try { payload = raw ? JSON.parse(raw) : null; } catch (error) { payload = null; }
         if (!payload) {
-            if (response.redirected) throw { error: 'session', message: 'Your SLO Cloud session ended. Sign in again in another tab, then retry.' };
+            if (response.redirected) throw { error: 'session', message: 'Your session ended. Reload the page and connect again.' };
             if (response.status === 403) throw { error: 'forbidden', message: 'Access denied.' };
             // Show the start of the reply as plain text, so a firewall or proxy page can be identified.
             const text = raw
@@ -611,7 +611,7 @@ $cdWorkerFresh = $queue->workerFresh();
             console.error('Non-JSON reply from ' + config.apiUrl + ' (HTTP ' + response.status + '):', raw);
             throw {
                 error: 'http_' + response.status,
-                message: 'SLO Cloud returned an unexpected response (HTTP ' + response.status + '). '
+                message: 'The server returned an unexpected response (HTTP ' + response.status + '). '
                     + (snippet ? 'The server said: "' + snippet + (text.length > 300 ? '…' : '') + '"' : 'The reply was empty.'),
             };
         }
@@ -719,7 +719,7 @@ $cdWorkerFresh = $queue->workerFresh();
             return 'Not needed';
         }
         if (key === 'course_delay_ms') return String(value) + ' ms';
-        if (key === 'operation') return value === 'remove' ? 'Remove SLO Cloud' : 'Install SLO Cloud';
+        if (key === 'operation') return value === 'remove' ? 'Remove the tool' : 'Install the tool';
         return String(value || '') || 'Not set';
     }
 
@@ -910,7 +910,7 @@ $cdWorkerFresh = $queue->workerFresh();
     const FLAG_TEXT = {
         yes: ['✓', 'text-success', 'Yes'],
         no: ['✗', 'text-danger', 'No'],
-        doubtful: ['?', 'text-warning', 'A tool on the same domain matched; it may not be SLO Cloud'],
+        doubtful: ['?', 'text-warning', 'A tool on the same domain matched; it may be a different tool'],
         error: ['!', 'text-warning', 'Could not check'],
     };
 
@@ -944,7 +944,7 @@ $cdWorkerFresh = $queue->workerFresh();
         let stopped = '';
         const progress = () => {
             if (generation === flagsGeneration && !stopped) {
-                els.flagsStatus.textContent = 'Checking SLO Cloud in each course: ' + courseFlags.size + ' of ' + total + '…';
+                els.flagsStatus.textContent = 'Checking the tool in each course: ' + courseFlags.size + ' of ' + total + '…';
             }
         };
         const markError = (ids, message) => ids.forEach((id) => courseFlags.set(id, { app: 'error', nav: 'error', module: 'error', tool: message }));
@@ -981,7 +981,7 @@ $cdWorkerFresh = $queue->workerFresh();
         await Promise.all([worker(), worker(), worker()]);
         if (generation !== flagsGeneration) return;
         if (stopped === 'launch_url') {
-            els.flagsStatus.textContent = 'Enter the SLO Cloud LTI launch URL in step 1 to see which courses already have the app, nav link and module.';
+            els.flagsStatus.textContent = 'Enter the tool\'s LTI launch URL in step 1 to see which courses already have the app, nav link and module.';
         } else if (stopped) {
             els.flagsStatus.textContent = 'Could not check courses: ' + stopped;
         } else {
@@ -1218,7 +1218,7 @@ $cdWorkerFresh = $queue->workerFresh();
         const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
         const link = document.createElement('a');
         link.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
-        link.download = 'slocloud-canvas-deploy' + (run.dryRun ? '-dry-run' : '') + '-' + stamp + '.csv';
+        link.download = 'lti-deploy' + (run.dryRun ? '-dry-run' : '') + '-' + stamp + '.csv';
         document.body.appendChild(link);
         link.click();
         setTimeout(() => { URL.revokeObjectURL(link.href); link.remove(); }, 0);
@@ -1807,8 +1807,8 @@ $cdWorkerFresh = $queue->workerFresh();
                 els.deploy.textContent = settings.operation === 'remove' ? 'Confirm: remove now' : 'Confirm: deploy now';
                 els.deploy.classList.replace(settings.operation === 'remove' ? 'btn-outline-danger' : 'btn-primary', 'btn-danger');
                 els.confirmNote.textContent = settings.operation === 'remove'
-                    ? 'Remove SLO Cloud from ' + scopeText + '? This deletes the course tool and its module link in every one of those courses, and cannot be undone from here. Click Confirm to start, or change anything to cancel.'
-                    : 'Deploy SLO Cloud to ' + scopeText + '? This adds the tool' + (settings.create_nav === '1' ? ', nav link' : '') + (settings.create_module === '1' ? ' and module link' : '')
+                    ? 'Remove the tool from ' + scopeText + '? This deletes the course tool and its module link in every one of those courses, and cannot be undone from here. Click Confirm to start, or change anything to cancel.'
+                    : 'Deploy the tool to ' + scopeText + '? This adds the tool' + (settings.create_nav === '1' ? ', nav link' : '') + (settings.create_module === '1' ? ' and module link' : '')
                         + ' wherever a course is missing them'
                         + ', sending ' + optionText(els.privacy, settings.privacy_level).toLowerCase()
                         + (settings.create_nav === '1' ? ', with the nav link ' + ({ admins: 'for teachers and admins', members: 'for everyone in the course', hidden: 'hidden until a teacher turns it on' }[settings.nav_visibility] || '') : '')

@@ -6,7 +6,7 @@ namespace CanvasAutomations;
 require_once __DIR__ . '/CanvasClient.php';
 
 /**
- * Installs the SLO Cloud LTI 1.1 tool (and an optional module link) in one
+ * Installs an LTI 1.1 tool (and an optional module link) in one
  * Canvas course. Every step checks before it writes, so re-running a course,
  * or resuming one interrupted mid-way, never creates duplicates.
  *
@@ -17,7 +17,7 @@ require_once __DIR__ . '/CanvasClient.php';
 final class CanvasLtiDeployer
 {
     public const BLUEPRINT_NOTE = 'Blueprint child course: deploy to its Blueprint course and let sync apply the change.';
-    public const NEEDS_CREDENTIALS_NOTE = 'SLO Cloud is not in this course or its account. Enter the LTI consumer key and shared secret to install it here.';
+    public const NEEDS_CREDENTIALS_NOTE = 'The tool is not in this course or its account. Enter the LTI consumer key and shared secret to install it here.';
 
     private ?\Closure $sisInspector;
 
@@ -50,7 +50,7 @@ final class CanvasLtiDeployer
             . (isset($parts['query']) && $parts['query'] !== '' ? '?' . $parts['query'] : '');
     }
 
-    /** The existing tool that already launches SLO Cloud, if any. */
+    /** The existing tool with this launch URL, if any. */
     public static function findMatchingTool(array $tools, string $launchUrl): ?array
     {
         $launch = self::normalizeUrl($launchUrl);
@@ -72,7 +72,7 @@ final class CanvasLtiDeployer
     }
 
     /**
-     * Other SLO Cloud installs in the course: same name or consumer key, but a
+     * Other installs of the tool in the course: same name or consumer key, but a
      * different launch URL (typical after a Canvas test-instance refresh).
      */
     public static function findForeignTools(array $tools, string $launchUrl, string $linkName, string $consumerKey): array
@@ -104,13 +104,13 @@ final class CanvasLtiDeployer
     }
 
     /**
-     * Why a matched tool cannot be trusted as SLO Cloud, or null when it can: matched only
+     * Why a matched tool cannot be trusted as this tool, or null when it can: matched only
      * by domain, so it may be another app on the same server.
      */
     public static function doubtfulMatch(array $tool): ?string
     {
         if (self::normalizeUrl($tool['url'] ?? null) === null) {
-            return 'Matched tool ' . self::describeTool($tool) . ' only by its domain, so it may not be SLO Cloud. Nothing was added; check it in Canvas.';
+            return 'Matched tool ' . self::describeTool($tool) . ' only by its domain, so it may be a different tool. Nothing was added; check it in Canvas.';
         }
         return null;
     }
@@ -223,18 +223,18 @@ final class CanvasLtiDeployer
         ];
     }
 
-    /** Warnings about an existing SLO Cloud tool that is left alone. */
+    /** Warnings about an existing copy of the tool that is left alone. */
     public static function toolWarnings(array $tool, string $consumerKey, string $privacy = 'public'): array
     {
         $warnings = [];
         $toolKey = (string)($tool['consumer_key'] ?? '');
         if ($toolKey !== '' && $consumerKey !== '' && $toolKey !== $consumerKey) {
-            $warnings[] = 'The existing SLO Cloud tool uses a different consumer key, so its launches will fail signature checks.';
+            $warnings[] = 'The existing tool uses a different consumer key, so its launches will fail signature checks.';
         }
         $privacy = self::privacyLevel($privacy);
         $toolPrivacy = (string)($tool['privacy_level'] ?? '');
         if ($toolPrivacy !== '' && $toolPrivacy !== $privacy) {
-            $warnings[] = 'The existing SLO Cloud tool sends "' . (self::PRIVACY_LABELS[$toolPrivacy] ?? $toolPrivacy) . '", not "'
+            $warnings[] = 'The existing tool sends "' . (self::PRIVACY_LABELS[$toolPrivacy] ?? $toolPrivacy) . '", not "'
                 . self::PRIVACY_LABELS[$privacy] . '" as chosen for this run. "Also update tools" changes it.';
         }
         return $warnings;
@@ -405,7 +405,7 @@ final class CanvasLtiDeployer
                 $inherited = $this->client->getAll("/api/v1/courses/{$courseId}/external_tools", ['include_parents' => 'true']);
                 if (self::findMatchingTool($inherited, $launchUrl) !== null) {
                     $row['tool'] = 'present_account';
-                    $row['notes'][] = 'SLO Cloud is installed at the account level, so it cannot be removed from one course. Remove it in Canvas under Admin > Settings > Apps.';
+                    $row['notes'][] = 'The tool is installed at the account level, so it cannot be removed from one course. Remove it in Canvas under Admin > Settings > Apps.';
                 } else {
                     $row['tool'] = 'absent';
                 }
@@ -493,7 +493,7 @@ final class CanvasLtiDeployer
         );
         foreach ($foreignTools as $foreign) {
             $target = (string)($foreign['url'] ?? '') !== '' ? (string)$foreign['url'] : (string)($foreign['domain'] ?? 'another address');
-            $notes[] = 'Another SLO Cloud tool "' . (string)($foreign['name'] ?? '') . '" points to ' . $target
+            $notes[] = 'Another copy of the tool "' . (string)($foreign['name'] ?? '') . '" points to ' . $target
                 . '; instructors may see two tabs.';
         }
 
@@ -503,7 +503,7 @@ final class CanvasLtiDeployer
             return 'doubtful';
         }
         if ($match !== null && self::lacksNav($match)) {
-            // SLO Cloud is there but has no nav link. A tool that belongs to this course can get
+            // The tool is there but has no nav link. A tool that belongs to this course can get
             // one (no key or secret needed); one from the account cannot be changed from here.
             $own ??= $this->client->getAll("/api/v1/courses/{$courseId}/external_tools");
             $ownMatch = self::findMatchingTool($own, $launchUrl);
@@ -521,7 +521,7 @@ final class CanvasLtiDeployer
                 // course-level copy, made with the key and secret the run requires for "Add navigation".
                 $accountKey = (string)($match['consumer_key'] ?? '');
                 if ($accountKey !== '' && $accountKey !== (string)($this->settings['consumer_key'] ?? '')) {
-                    $notes[] = 'The consumer key entered does not match the account SLO Cloud tool ' . self::describeTool($match)
+                    $notes[] = 'The consumer key entered does not match the account\'s copy of the tool ' . self::describeTool($match)
                         . ', so no nav link was added. Enter the same key and secret as the account tool.';
                     $nav = 'not_added';
                     return 'present_account';
@@ -571,7 +571,7 @@ final class CanvasLtiDeployer
                     ]);
                     return 'updated';
                 }
-                $notes[] = 'SLO Cloud comes from the account, so its credentials and privacy cannot be updated from this course.';
+                $notes[] = 'The tool comes from the account, so its credentials and privacy cannot be updated from this course.';
             }
             array_push($notes, ...self::toolWarnings($match, (string)$this->settings['consumer_key'], self::privacyLevel($this->settings['privacy_level'] ?? 'public')));
             return 'present';
@@ -598,7 +598,7 @@ final class CanvasLtiDeployer
     private function updateNav(int $courseId, ?array $ownTool, array &$notes): string
     {
         if ($ownTool === null) {
-            $notes[] = 'The nav link comes from the account SLO Cloud tool, so it cannot be updated from this course.';
+            $notes[] = 'The nav link comes from the account\'s copy of the tool, so it cannot be updated from this course.';
             return 'present';
         }
         if (self::lacksNav($ownTool)) {
@@ -646,10 +646,10 @@ final class CanvasLtiDeployer
         // follows the module_published choice.
         $publish = !empty($this->settings['module_published']);
         if ($named !== null && !$publish && !empty($named['published'])) {
-            $notes[] = 'Module "' . $moduleName . '" is published, so students can see the SLO Cloud link. Unpublish the module or the link if they should not.';
+            $notes[] = 'Module "' . $moduleName . '" is published, so students can see the tool\'s link. Unpublish the module or the link if they should not.';
         }
         if ($named !== null && $publish && empty($named['published'])) {
-            $notes[] = 'Module "' . $moduleName . '" is unpublished, so students won\'t see the SLO Cloud link until a teacher publishes the module.';
+            $notes[] = 'Module "' . $moduleName . '" is unpublished, so students won\'t see the tool\'s link until a teacher publishes the module.';
         }
         if (!empty($this->settings['dry_run'])) {
             return $named === null ? 'would_create' : 'would_add';

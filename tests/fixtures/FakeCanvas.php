@@ -10,10 +10,10 @@ declare(strict_types=1);
 final class FakeCanvas
 {
     public const TOKEN = 'mock-canvas-token-0001';
-    public const LAUNCH_URL = 'https://slo.example.edu/lti/launch.php';
-    public const CONSUMER_KEY = 'slocloud-test-key';
-    public const CONSUMER_SECRET = 'slocloud-test-secret';
-    public const PROD_LAUNCH_URL = 'https://slo-prod.example.edu/lti/launch.php';
+    public const LAUNCH_URL = 'https://tool.example.edu/lti/launch.php';
+    public const CONSUMER_KEY = 'lti-test-key';
+    public const CONSUMER_SECRET = 'lti-test-secret';
+    public const PROD_LAUNCH_URL = 'https://tool-prod.example.edu/lti/launch.php';
 
     /** @var callable(float): void */
     private $latency;
@@ -48,7 +48,7 @@ final class FakeCanvas
             'calls' => [],
         ];
         if (!empty($options['account_tool'])) {
-            $state['account_tools'][] = self::tool(900, 'SLO Cloud Reporting', self::LAUNCH_URL, self::CONSUMER_KEY);
+            $state['account_tools'][] = self::tool(900, 'Course Reports', self::LAUNCH_URL, self::CONSUMER_KEY);
         }
 
         $add = static function (int $id, int $term, string $name, ?string $sis, array $extra = []) use (&$state): void {
@@ -69,18 +69,18 @@ final class FakeCanvas
         };
 
         $add(1001, 10, 'ENG-101 Fresh course', '10001.202630');
-        $add(1002, 10, 'ENG-102 Already installed', '10002.202630', ['tools' => [self::tool(801, 'SLO Cloud Reporting', self::LAUNCH_URL . '/', self::CONSUMER_KEY)]]);
-        $add(1003, 10, 'ENG-103 Different key', '10003.202630', ['tools' => [self::tool(802, 'SLO Cloud', 'HTTPS://SLO.EXAMPLE.EDU:443/lti/launch.php', 'old-key')]]);
-        $add(1004, 10, 'ENG-104 Refreshed from production', '10004.202630', ['tools' => [self::tool(803, 'SLO Cloud Reporting', self::PROD_LAUNCH_URL, self::CONSUMER_KEY)]]);
+        $add(1002, 10, 'ENG-102 Already installed', '10002.202630', ['tools' => [self::tool(801, 'Course Reports', self::LAUNCH_URL . '/', self::CONSUMER_KEY)]]);
+        $add(1003, 10, 'ENG-103 Different key', '10003.202630', ['tools' => [self::tool(802, 'Course Tool', 'HTTPS://TOOL.EXAMPLE.EDU:443/lti/launch.php', 'old-key')]]);
+        $add(1004, 10, 'ENG-104 Refreshed from production', '10004.202630', ['tools' => [self::tool(803, 'Course Reports', self::PROD_LAUNCH_URL, self::CONSUMER_KEY)]]);
         $add(1005, 10, 'ENG-105 Blueprint child', '10005.202630', ['blueprint_child' => true]);
         $add(1006, 10, 'ENG-106 No permission', '10006.202630', ['forbidden' => true]);
         $add(1007, 10, 'ENG-107 Slow course', '10007.202630');
         $add(1008, 10, 'ENG-108 No SIS ID', null);
         $add(1009, 10, 'ENG-109 Odd SIS ID', 'SANDBOX-ENG109');
-        $add(1010, 10, 'ENG-110 Published module', '10010.202630', ['modules' => [['id' => 701, 'name' => 'SLO Cloud', 'published' => true, 'items' => []]]]);
+        $add(1010, 10, 'ENG-110 Published module', '10010.202630', ['modules' => [['id' => 701, 'name' => 'Course Tool', 'published' => true, 'items' => []]]]);
         $add(1011, 10, 'ENG-111 Link already there', '10011.202630', ['modules' => [[
             'id' => 702, 'name' => 'Assessment', 'published' => false,
-            'items' => [['id' => 7020, 'type' => 'ExternalTool', 'title' => 'SLO', 'external_url' => self::LAUNCH_URL]],
+            'items' => [['id' => 7020, 'type' => 'ExternalTool', 'title' => 'Tool link', 'external_url' => self::LAUNCH_URL]],
         ]]]);
         $fresh = (int)($options['fresh_courses'] ?? 119);
         for ($i = 0; $i < $fresh; $i++) {

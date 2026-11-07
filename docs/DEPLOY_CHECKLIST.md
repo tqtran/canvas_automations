@@ -104,8 +104,8 @@ started the runs. With it, runs also carry on when every page is closed.
       browser (it shows "Queued behind 1 run ... It starts automatically unless you cancel it"),
       click **Cancel this queued run** on the second, then **Cancel** twice under Your runs on
       the first. Both end as cancelled, and each run's log has `run_cancel_requested`.
-- [ ] Real run on **one course**. In Canvas, check that course: the SLO Cloud tab in course
-      navigation (instructors only) and the unpublished "SLO Cloud" module.
+- [ ] Real run on **one course**. In Canvas, check that course: the tool's tab in course
+      navigation and its module, each seen by whoever was chosen for the run.
 - [ ] No repeated "Lost contact with the server" messages. One now and then is fine; the run
       is on the server and the page keeps asking.
 

@@ -2,7 +2,7 @@
 
 ## Deploy to Canvas
 
-A web page that installs (or removes) the SLO Cloud LTI 1.1 tool in Canvas courses.
+A web page that installs (or removes) an LTI 1.1 tool in Canvas courses.
 There is no login: the person pastes their Canvas API token, the page lists the courses
 that token can deploy to (teacher, TA or designer enrollments), and they tick which ones.
 A Canvas account-admin token also gets the term / all active / all courses options.

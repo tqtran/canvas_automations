@@ -37,6 +37,15 @@ $logFailure = static function (int $status, array $body) use ($audit, $action, $
             $request[$secret] = '[hidden, ' . strlen((string)$request[$secret]) . ' chars]';
         }
     }
+    // The consumer key keeps its first and last character ("s…y"), enough to spot the wrong
+    // key without writing it down. Short keys are hidden whole.
+    if (isset($request['lti_consumer_key'])) {
+        $key = trim((string)$request['lti_consumer_key']);
+        $length = mb_strlen($key);
+        $request['lti_consumer_key'] = $key === '' ? '' : ($length < 8
+            ? '[hidden, ' . $length . ' chars]'
+            : mb_substr($key, 0, 1) . '…' . mb_substr($key, -1) . ' (' . $length . ' chars)');
+    }
     $entry = [
         'session' => $sessionTag,
         'action' => $action,

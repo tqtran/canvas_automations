@@ -361,6 +361,7 @@ $runId = $started['body']['run_id'] ?? '';
 $runKey = $started['body']['run_key'] ?? '';
 $check($started['status'] === 200 && preg_match('/^[0-9a-f]{32}$/', $runId) === 1 && preg_match('/^[0-9a-f]{64}$/', $runKey) === 1, 'Run did not start.');
 $check(!str_contains(json_encode($store), FakeCanvas::TOKEN) && !str_contains(json_encode($store), $runKey), 'Session store holds the token or run key.');
+$check(!str_contains(json_encode($store), FakeCanvas::CONSUMER_KEY) && !str_contains(json_encode($store), FakeCanvas::CONSUMER_SECRET), 'The run record holds the LTI key or secret in plain text.');
 $check($service->dispatch('run_batch', ['run_id' => $runId, 'run_key' => str_repeat('0', 64)])['body']['error'] === 'run_key_rejected', 'A wrong run key was accepted.');
 $otherUser = $newService($store, $canvas, $clock, 2);
 $check($otherUser->dispatch('run_batch', ['run_id' => $runId, 'run_key' => $runKey])['body']['error'] === 'run_forbidden', 'Another user could drive the run.');
@@ -392,6 +393,7 @@ $check($delaySleeps === $expectedDelays, "Delay was not applied only between cou
 $check(($batches[0]['delay_ms'] ?? null) === 500, 'The browser is not told the delay to wait between batches.');
 $check(($byId[1005]['status'] ?? '') === 'skipped' && str_contains(implode(' ', $byId[1005]['notes']), 'Blueprint'), 'Blueprint child was not listed as skipped.');
 $check(($byId[1004]['tool'] ?? '') === 'created' && ($byId[1002]['tool'] ?? '') === 'present' && ($byId[1006]['status'] ?? '') === 'failed', 'Term run outcomes are wrong.');
+$check(($canvas->state['courses'][1001]['tools'][0]['consumer_key'] ?? '') === FakeCanvas::CONSUMER_KEY, 'A tool was created without the decrypted consumer key.');
 $finished = $service->dispatch('run_finish', ['run_id' => $runId, 'run_key' => $runKey]);
 $check($finished['status'] === 200 && $finished['body']['counts']['processed'] === 130 && $finished['body']['counts']['skipped'] === 1, 'Run finish did not report counts.');
 $check(!isset($store['run']), 'Finished run stayed in the session.');
@@ -929,6 +931,9 @@ $canvas = new FakeCanvas(FakeCanvas::scenario(['fresh_courses' => 0]), static fu
 $store = [];
 $navService = $newService($store, $canvas, $clock)->forQueue();
 $navRun = $navService->dispatch('run_start', $settings(['scope' => 'course', 'scope_value' => '1002,1001', 'create_module' => '0', 'create_nav' => '1', 'update_nav' => '1', 'nav_default' => 'disabled']));
+// A run queued before the consumer key was encrypted keeps it under lti; it still works.
+$store['run']['lti']['consumer_key'] = FakeCanvas::CONSUMER_KEY;
+unset($store['run']['lti_key']);
 $batches = [];
 $rows = $runAll($navService, $navRun['body']['run_id'], $navRun['body']['run_key'], $batches);
 $navRows = array_column(array_filter($rows, 'is_array'), null, 'course_id');
@@ -936,6 +941,7 @@ $navCounts = end($batches)['counts'] ?? [];
 $check(($navRows[1002]['nav'] ?? '') === 'updated' && ($navRows[1001]['nav'] ?? '') === 'added' && ($navCounts['nav_updated'] ?? 0) === 1 && ($navCounts['nav_added'] ?? 0) === 1,
     'A run did not update one nav link and add another: ' . json_encode([$navRows[1002]['nav'] ?? null, $navRows[1001]['nav'] ?? null, $navCounts]));
 $check(($canvas->state['courses'][1001]['tools'][0]['course_navigation']['default'] ?? '') === 'disabled', 'A run did not create the nav link hidden.');
+$check(($canvas->state['courses'][1001]['tools'][0]['consumer_key'] ?? '') === FakeCanvas::CONSUMER_KEY, 'A run queued with a plain-text consumer key lost it.');
 $navService->dispatch('run_finish', ['run_id' => $navRun['body']['run_id'], 'run_key' => $navRun['body']['run_key']]);
 
 // The queue key is generated once and reused.

@@ -633,7 +633,10 @@ final class CanvasDeployRun
                 'id' => $runId,
                 'user_id' => $this->userId,
                 'token' => (new Encryption($runKey))->encrypt(trim($token)),
-                'lti' => ['launch_url' => $effective['launch_url'], 'consumer_key' => $effective['consumer_key']],
+                // The consumer key and secret are kept encrypted with the run key, like the token,
+                // while the run waits in the queue.
+                'lti' => ['launch_url' => $effective['launch_url']],
+                'lti_key' => $effective['consumer_key'] === '' ? '' : (new Encryption($runKey))->encrypt($effective['consumer_key']),
                 'lti_secret' => $effective['consumer_secret'] === '' ? '' : (new Encryption($runKey))->encrypt($effective['consumer_secret']),
                 'settings' => $settings,
                 'account_tool' => $accountTool,
@@ -711,7 +714,11 @@ final class CanvasDeployRun
         $client = $this->client($run['settings']['base_url'], $token, $started + $hardDeadline);
         unset($token);
         $secret = $run['lti_secret'] === '' ? '' : (new Encryption($runKey))->decrypt((string)$run['lti_secret']);
-        $deployer = new CanvasLtiDeployer($client, $run['lti'] + ['consumer_secret' => $secret] + [
+        // Runs queued before the key was encrypted still have it under lti.
+        $consumerKey = isset($run['lti_key'])
+            ? ($run['lti_key'] === '' ? '' : (new Encryption($runKey))->decrypt((string)$run['lti_key']))
+            : (string)($run['lti']['consumer_key'] ?? '');
+        $deployer = new CanvasLtiDeployer($client, ['launch_url' => (string)$run['lti']['launch_url'], 'consumer_key' => $consumerKey, 'consumer_secret' => $secret] + [
             'link_name' => $run['settings']['link_name'],
             'create_module' => $run['settings']['create_module'],
             'module_name' => $run['settings']['module_name'],

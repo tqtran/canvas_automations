@@ -26,8 +26,9 @@ A Canvas account-admin token also gets the term / all active / all courses optio
   token lists that person's runs. Finished runs are kept for 7 days.
 - The token stays in the browser tab, and on the server only encrypted for the length of a
   run: with a key of its own, which is in turn encrypted with the queue key. Both are
-  deleted when the run ends, and if nothing moves the queue for 2 hours its runs are ended. The token is
-  never written to the log.
+  deleted when the run ends, and if nothing moves the queue for 2 hours its runs are ended. The LTI
+  consumer key and shared secret are kept the same way. The token and secret are never written to
+  the log; the consumer key only as its first and last character ("s…y").
 - Log out clears the token, the LTI shared secret and this browser's list of runs (on the
   page and on the server). Runs in progress keep going; connecting with the same Canvas
   account shows them again. The page says so next to Log out and after logging out, and

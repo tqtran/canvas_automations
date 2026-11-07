@@ -138,6 +138,10 @@ $cdWorkerFresh = $queue->workerFresh();
                     <h2 class="card-title d-flex align-items-center gap-2"><span class="badge rounded-pill text-bg-primary">2</span> Connect to Canvas</h2>
                 </div>
                 <div class="card-body">
+                    <div class="alert alert-info d-flex gap-2 py-2 mb-3" id="cdReloadNotice">
+                        <i class="bi bi-shield-lock-fill" aria-hidden="true"></i>
+                        <div>For your protection, your Canvas token isn't saved on the server or in this browser, so reloading this page means connecting again. Runs you started keep going: connect again to see them.</div>
+                    </div>
                     <div class="d-none" id="cdConnectedBar">
                         <div class="alert alert-success d-flex flex-wrap justify-content-between align-items-center gap-2 mb-0">
                             <span id="cdConnectedText" role="status" aria-live="polite"><i class="bi bi-check-circle-fill me-2" aria-hidden="true"></i><strong>Connected</strong></span>
